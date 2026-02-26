@@ -1,0 +1,49 @@
+{
+  "menuItems": [
+    { "id": "e1", "name": "Salade Marocaine", "description": "Tomates, concombres, oignons frais, persil, huile d'olive et citron", "price": 6.50, "image": "/salade-marocaine.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e2", "name": "Salade de Khizo Mchermel", "description": "Carottes râpées marinées à la marocaine avec cumin et ail", "price": 5.50, "image": "/khizo.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e3", "name": "Briouates au Fromage", "description": "Triangles croustillants au fromage frais et herbes", "price": 7.00, "image": "/briouates-triangle.jpg", "category": "entree", "tags": ["Végétarien"], "variants": ["Fromage", "Kefta", "Poulet", "Épinards"] },
+    { "id": "e4", "name": "Cigares au Fromage", "description": "Rouleaux croustillants farcis au fromage", "price": 7.00, "image": "/cigares.jpg", "category": "entree", "variants": ["Fromage", "Kefta", "Poulet", "Épinards"] },
+    { "id": "e5", "name": "Soupe Harira", "description": "Soupe traditionnelle marocaine aux légumes, vermicelles et épices", "price": 5.50, "image": "/harira.jpg", "category": "entree" },
+    { "id": "e6", "name": "Soupe Belboula", "description": "Soupe d'orge aux légumes et épices", "price": 5.00, "image": "/belboula.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e7", "name": "Soupe Chorba", "description": "Soupe aux viandes hachées et vermicelles", "price": 5.50, "image": "/chorba.jpg", "category": "entree" },
+    { "id": "e8", "name": "Bissara", "description": "Purée de fèves aux épices et huile d'olive", "price": 4.50, "image": "/bissara.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e9", "name": "L'3des", "description": "Soupe traditionnelle aux lentilles", "price": 5.00, "image": "/loubia.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e10", "name": "Loubia", "description": "Haricots blancs mijotés à la tomate et épices", "price": 5.50, "image": "/bissara.jpg", "category": "entree" },
+    { "id": "e11", "name": "Zaalouk", "description": "Caviar d'aubergines fumées aux tomates et épices", "price": 5.00, "image": "/zaalouk.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e12", "name": "Msemen", "description": "Crêpes feuilletées marocaines", "price": 3.50, "image": "/msemen.jpg", "category": "entree" },
+    { "id": "e13", "name": "Mlwi", "description": "Pain marocain traditionnel", "price": 3.00, "image": "/mlwi.jpg", "category": "entree" },
+    { "id": "e14", "name": "Baghrir", "description": "Crêpes mille trous servies avec miel et beurre", "price": 4.00, "image": "/baghrir.jpg", "category": "entree", "tags": ["Végétarien"] },
+    { "id": "e15", "name": "Harcha", "description": "Galette de semoule dorée et croustillante", "price": 3.50, "image": "/harcha.jpg", "category": "entree", "variants": ["Nature", "Fromage", "Olives", "Zaatar"] },
+    { "id": "e16", "name": "Msemen M'3mar", "description": "Msemen farci à la viande hachée", "price": 6.00, "image": "/msemen-stuffed.jpg", "category": "entree" },
+
+    { "id": "p1", "name": "Couscous", "description": "Semoule vapeur avec légumes de saison et viande au choix", "price": 16.00, "image": "/couscous-royal.jpg", "category": "plat", "variants": ["Agneau", "Veau", "Poulet", "Végétarien", "Royal"] },
+    { "id": "p2", "name": "Poulet au Deghmira", "description": "Poulet mijoté dans une sauce onctueuse aux olives et frites", "price": 15.50, "image": "/poulet-deghmira.jpg", "category": "plat" },
+    { "id": "p3", "name": "Agneau aux Abricots", "description": "Tendre agneau aux abricots secs et amandes", "price": 18.00, "image": "/agneau-abricots.jpg", "category": "plat" },
+    { "id": "p4", "name": "Veau aux Pruneaux", "description": "Veau fondant aux pruneaux et amandes grillées", "price": 17.50, "image": "/veau-pruneaux.jpg", "category": "plat" },
+    { "id": "p5", "name": "Poulet aux Légumes", "description": "Poulet mijoté avec légumes de saison", "price": 14.50, "image": "/poulet-legumes.jpg", "category": "plat", "variants": ["Poulet", "Veau", "Agneau"] },
+    { "id": "p6", "name": "Tajine au Poisson", "description": "Poisson frais aux légumes et citron confit", "price": 16.50, "image": "/tagine-poisson.jpg", "category": "plat" },
+    { "id": "p7", "name": "Tajine Kefta et Oeufs", "description": "Boulettes de viande hachée aux épices et oeufs", "price": 15.00, "image": "/tagine-kefta.jpg", "category": "plat" },
+    { "id": "p8", "name": "Rfissa", "description": "Msemen émietté avec poulet, lentilles et fenugrec", "price": 17.00, "image": "/rfissa.jpg", "category": "plat" },
+    { "id": "p9", "name": "Bastilla au Poulet", "description": "Feuilleté sucré-salé au poulet, amandes et cannelle", "price": 19.00, "image": "/bastilla-poulet.jpg", "category": "plat" },
+    { "id": "p10", "name": "Bastilla au Poisson", "description": "Feuilleté croustillant au poisson et vermicelles", "price": 18.50, "image": "/bastilla-poisson.jpg", "category": "plat" },
+    { "id": "p11", "name": "Tanjia", "description": "Agneau mijoté lentement aux épices et citron confit", "price": 18.50, "image": "/tanjia.jpg", "category": "plat" },
+    { "id": "p12", "name": "Mrouzia", "description": "Agneau aux raisins secs, amandes et miel", "price": 19.00, "image": "/mrouzia.jpg", "category": "plat" },
+    { "id": "p13", "name": "Hergma", "description": "Pieds de veau aux pois chiches et raisins secs", "price": 16.00, "image": "/hergma.jpg", "category": "plat" },
+    { "id": "p14", "name": "Seffa", "description": "Vermicelles vapeur sucrés avec poulet et cannelle", "price": 15.00, "image": "/seffa.jpg", "category": "plat" },
+    { "id": "p15", "name": "Tajine aux Légumes", "description": "Légumes de saison mijotés aux épices", "price": 13.50, "image": "/tagine-legumes.jpg", "category": "plat", "tags": ["Végétarien"] },
+
+    { "id": "d1", "name": "Kika", "description": "Gâteau marocain traditionnel moelleux", "price": 4.50, "image": "/kaab-ghorib.jpg", "category": "dessert" },
+    { "id": "d2", "name": "Assortiment de Gâteaux Marocains", "description": "Sélection de cornes de gazelle, ghriba et chebakia", "price": 6.50, "image": "/desserts.jpg", "category": "dessert" },
+    { "id": "d3", "name": "Flan Crème Caramel", "description": "Flan onctueux au caramel maison", "price": 4.00, "image": "/flan.jpg", "category": "dessert", "tags": ["Végétarien"] },
+    { "id": "d4", "name": "Salade de Fruits", "description": "Fruits frais de saison parfumés à l'eau de fleur d'oranger", "price": 5.00, "image": "/salade-fruits.jpg", "category": "dessert", "tags": ["Végétarien", "Santé"] }
+  ],
+  "testimonials": [
+    { "id": 1, "name": "Fatima B.", "rating": 5, "text": "Un voyage culinaire au Maroc sans quitter ma cuisine ! Le couscous est divin.", "avatar": "F" },
+    { "id": 2, "name": "Karim L.", "rating": 5, "text": "La bastilla est exactement comme celle de ma grand-mère. Merci BledCrate !", "avatar": "K" },
+    { "id": 3, "name": "Sophie M.", "rating": 5, "text": "Livraison rapide et emballage soigné. Les saveurs sont authentiques.", "avatar": "S" },
+    { "id": 4, "name": "Ahmed D.", "rating": 5, "text": "Enfin une vraie cuisine marocaine à domicile. Je recommande vivement !", "avatar": "A" },
+    { "id": 5, "name": "Yasmine R.", "rating": 5, "text": "La harira me rappelle les soirs du Ramadan chez mes parents. Émouvant.", "avatar": "Y" },
+    { "id": 6, "name": "Omar T.", "rating": 5, "text": "Qualité exceptionnelle, portions généreuses. Mon nouveau favori !", "avatar": "O" }
+  ]
+}

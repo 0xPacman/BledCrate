@@ -1,0 +1,293 @@
+/* App-specific styles for BledCrate */
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Hero parallax effect */
+.hero-parallax {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Menu card 3D effect */
+.menu-card {
+  transform-style: preserve-3d;
+  perspective: 1000px;
+}
+
+.menu-card-inner {
+  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.menu-card:hover .menu-card-inner {
+  transform: rotateY(5deg) rotateX(-5deg);
+}
+
+/* Steam animation for food items */
+.steam-container {
+  position: relative;
+}
+
+.steam-container::after {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 60px;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,0.3) 0%, transparent 70%);
+  border-radius: 50%;
+  animation: steam-rise 2s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes steam-rise {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-40px) scale(1.5);
+  }
+}
+
+/* Zellige decorative elements */
+.zellige-corner {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  background-image: url('/zellige-pattern.jpg');
+  background-size: cover;
+  opacity: 0.6;
+}
+
+.zellige-corner-tl {
+  top: 0;
+  left: 0;
+  border-bottom-right-radius: 100%;
+}
+
+.zellige-corner-tr {
+  top: 0;
+  right: 0;
+  border-bottom-left-radius: 100%;
+}
+
+.zellige-corner-bl {
+  bottom: 0;
+  left: 0;
+  border-top-right-radius: 100%;
+}
+
+.zellige-corner-br {
+  bottom: 0;
+  right: 0;
+  border-top-left-radius: 100%;
+}
+
+/* Zellige border pattern */
+.zellige-border {
+  position: relative;
+}
+
+.zellige-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background-image: url('/zellige-pattern.jpg');
+  background-size: 100px 100%;
+  background-repeat: repeat-x;
+}
+
+/* Tab indicator animation */
+.tab-indicator {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Price tag flip effect */
+.price-tag {
+  transform-style: preserve-3d;
+  transition: transform 0.5s ease;
+}
+
+.price-tag:hover {
+  transform: rotateY(180deg);
+}
+
+/* Moroccan arch shape */
+.moroccan-arch {
+  border-radius: 50% 50% 0 0 / 30% 30% 0 0;
+}
+
+/* Decorative border pattern */
+.moroccan-border {
+  position: relative;
+}
+
+.moroccan-border::before,
+.moroccan-border::after {
+  content: '';
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border: 3px solid #ef4444;
+}
+
+.moroccan-border::before {
+  top: -10px;
+  left: -10px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.moroccan-border::after {
+  bottom: -10px;
+  right: -10px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Loading shimmer for images */
+.image-shimmer {
+  background: linear-gradient(
+    90deg,
+    #fef3c7 0%,
+    #fde68a 50%,
+    #fef3c7 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Toast notification styling */
+[data-sonner-toast] {
+  font-family: 'Quicksand', sans-serif !important;
+}
+
+/* Zellige pattern overlay */
+.zellige-overlay {
+  position: relative;
+}
+
+.zellige-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url('/zellige-pattern.jpg');
+  background-size: 150px 150px;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+/* Section divider with zellige */
+.zellige-divider {
+  height: 12px;
+  background-image: url('/zellige-pattern.jpg');
+  background-size: 80px 100%;
+  background-repeat: repeat-x;
+  opacity: 0.3;
+}
+
+/* Logo glow effect */
+.logo-glow {
+  filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.3));
+  transition: filter 0.3s ease;
+}
+
+.logo-glow:hover {
+  filter: drop-shadow(0 0 20px rgba(239, 68, 68, 0.5));
+}
+
+/* Card zellige accent */
+.card-zellige-accent {
+  position: relative;
+}
+
+.card-zellige-accent::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(to bottom, #ef4444, #f97316, #10b981);
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .hero-title {
+    font-size: 3rem !important;
+  }
+  
+  .section-title {
+    font-size: 2.5rem !important;
+  }
+  
+  .zellige-corner {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus styles for accessibility */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background: #ef4444;
+  color: white;
+}
+
+/* Print styles */
+@media print {
+  nav,
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Custom scrollbar with moroccan theme */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #fef3c7;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #ef4444, #f97316);
+  border-radius: 6px;
+  border: 2px solid #fef3c7;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #dc2626, #ea580c);
+}
