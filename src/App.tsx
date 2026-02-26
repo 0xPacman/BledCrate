@@ -24,7 +24,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
 import menuData from '@/data/menu.json';
 import './App.css';
 
@@ -858,15 +858,15 @@ function App() {
                 key={variant}
                 onClick={() => setSelectedVariant(variant)}
                 className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
-                  selectedVariant === variant 
-                    ? 'border-moroccan-red bg-moroccan-red/10' 
+                  selectedVariant === variant
+                    ? 'border-moroccan-red bg-moroccan-red/10'
                     : 'border-moroccan-brown/20 hover:border-moroccan-red/50'
                 }`}
               >
                 <span className="font-medium text-moroccan-brown">{variant}</span>
               </button>
             ))}
-            <Button 
+            <Button
               onClick={() => selectedItem && addToCart(selectedItem, selectedVariant)}
               className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6"
             >
@@ -875,6 +875,9 @@ function App() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Toast Notifications */}
+      <Toaster position="top-right" richColors />
     </div>
   );
 }
