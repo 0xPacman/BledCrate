@@ -160,7 +160,8 @@ function App() {
   };
 
   const discountAmount = promoApplied ? (cartTotal * promoApplied.discount / 100) : 0;
-  const finalTotal = cartTotal - discountAmount;
+  const afterDiscount = cartTotal - discountAmount;
+  const finalTotal = Math.round(afterDiscount * 1.15 * 100) / 100;
 
   // Send order via Stripe Checkout
   const sendOrder = async () => {
@@ -175,7 +176,7 @@ function App() {
           name: i.name,
           variant: i.selectedVariant,
           quantity: i.quantity,
-          price: i.price,
+          price: Math.round(i.price * 1.15 * 100) / 100,
         })),
         customer: {
           name: customerInfo.name,
@@ -313,10 +314,11 @@ function App() {
                 </ScrollArea>
                 {cart.length > 0 && (
                   <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t">
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex justify-between items-center mb-1">
                       <span className="text-moroccan-brown font-medium">Total</span>
-                      <span className="text-2xl font-bold text-moroccan-red">{cartTotal.toFixed(2)} $</span>
+                      <span className="text-2xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
                     </div>
+                    <p className="text-xs text-moroccan-brown/40 text-right mb-4">Frais et taxes inclus</p>
                     <Button
                       onClick={() => setCheckoutOpen(true)}
                       className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white font-semibold py-6 btn-liquid"
@@ -865,28 +867,31 @@ function App() {
           </DialogHeader>
           <div className="space-y-4 mt-2">
             {/* Order Summary */}
-            <div className="bg-white rounded-xl p-4 space-y-1 text-sm">
+            <div className="bg-white rounded-xl p-4 space-y-1.5 text-sm">
               {cart.map(i => (
                 <div key={`${i.id}-${i.selectedVariant}`} className="flex justify-between text-moroccan-brown">
-                  <span>{i.name}{i.selectedVariant ? ` (${i.selectedVariant})` : ''} x{i.quantity}</span>
-                  <span className="font-semibold">{(i.price * i.quantity).toFixed(2)} $</span>
+                  <span className="flex-1">{i.name}{i.selectedVariant ? ` (${i.selectedVariant})` : ''} <span className="text-moroccan-brown/50">x{i.quantity}</span></span>
+                  <span className="font-semibold ml-4">{(i.price * i.quantity).toFixed(2)} $</span>
                 </div>
               ))}
-              <div className="border-t pt-2 space-y-1">
-                <div className="flex justify-between text-moroccan-brown">
-                  <span>Sous-total</span>
-                  <span className="font-semibold">{cartTotal.toFixed(2)} $</span>
-                </div>
-                {promoApplied && (
+              {promoApplied && (
+                <>
+                  <div className="border-t pt-2 flex justify-between text-moroccan-brown/70">
+                    <span>Sous-total</span>
+                    <span>{cartTotal.toFixed(2)} $</span>
+                  </div>
                   <div className="flex justify-between text-green-600">
-                    <span>Promo ({promoApplied.code}) -{promoApplied.discount}%</span>
+                    <span>Promo ({promoApplied.code})</span>
                     <span>-{discountAmount.toFixed(2)} $</span>
                   </div>
-                )}
-                <div className="flex justify-between font-bold text-moroccan-red text-base">
+                </>
+              )}
+              <div className={`${promoApplied ? '' : 'border-t pt-2'}`}>
+                <div className="flex justify-between font-bold text-moroccan-red text-lg">
                   <span>Total</span>
                   <span>{finalTotal.toFixed(2)} $</span>
                 </div>
+                <p className="text-xs text-moroccan-brown/40 text-right mt-0.5">Frais et taxes inclus</p>
               </div>
             </div>
             {/* Promo Code */}
@@ -963,9 +968,12 @@ function App() {
               disabled={isSubmitting}
               className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6 font-semibold text-base"
             >
-              {isSubmitting ? 'Redirection vers le paiement...' : `Payer ${finalTotal.toFixed(2)} $ — Stripe`}
+              {isSubmitting ? 'Redirection vers le paiement...' : `Payer ${finalTotal.toFixed(2)} $`}
             </Button>
-            <p className="text-xs text-moroccan-brown/40 text-center">Paiement sécurisé par Stripe</p>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <svg className="w-4 h-4 text-moroccan-brown/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+              <p className="text-xs text-moroccan-brown/40">Paiement sécurisé par Stripe</p>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
