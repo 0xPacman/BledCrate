@@ -6,6 +6,7 @@ import {
   Home,
   Star,
   Instagram,
+  Facebook,
   Plus,
   Minus,
   X,
@@ -772,7 +773,9 @@ function App() {
                 <li><button onClick={() => scrollToSection('menu')} className="hover:text-moroccan-gold transition-colors">Notre Menu</button></li>
                 <li><button onClick={() => scrollToSection('how-it-works')} className="hover:text-moroccan-gold transition-colors">Comment Ça Marche</button></li>
                 <li><button onClick={() => scrollToSection('testimonials')} className="hover:text-moroccan-gold transition-colors">Avis Clients</button></li>
-                <li><Link to="/politique" className="hover:text-moroccan-gold transition-colors">Politique de Livraison & Retours</Link></li>
+                <li><Link to="/politique" className="hover:text-moroccan-gold transition-colors">Livraison & Retours</Link></li>
+                <li><Link to="/confidentialite" className="hover:text-moroccan-gold transition-colors">Confidentialité</Link></li>
+                <li><Link to="/conditions" className="hover:text-moroccan-gold transition-colors">Conditions d'Utilisation</Link></li>
               </ul>
             </div>
             <div>
@@ -797,6 +800,9 @@ function App() {
               <div className="flex gap-4">
                 <a href="https://www.instagram.com/bledcrate/" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
                   <Instagram className="w-5 h-5" />
+                </a>
+                <a href="https://www.facebook.com/profile.php?id=61579503047042" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
+                  <Facebook className="w-5 h-5" />
                 </a>
                 <a href="https://www.tiktok.com/@bledcrate" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 0 0-.79-.05A6.34 6.34 0 0 0 3.15 15a6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.34-6.34V8.87a8.16 8.16 0 0 0 4.76 1.52v-3.4a4.85 4.85 0 0 1-1-.3z"/></svg>
