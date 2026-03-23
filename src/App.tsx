@@ -1,23 +1,24 @@
 import { useState, useEffect } from 'react';
-import { 
-  ShoppingCart, 
-  ChefHat, 
-  Truck, 
-  Home, 
-  Star, 
-  Instagram, 
-  Facebook, 
-  Twitter, 
-  Plus, 
-  Minus, 
+import {
+  ShoppingCart,
+  ChefHat,
+  Truck,
+  Home,
+  Star,
+  Instagram,
+  Plus,
+  Minus,
   X,
   Menu,
   Clock,
   Heart,
   MapPin,
-  Phone,
   Globe,
+  Mail,
+  ArrowUp,
+  ChevronRight,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -67,6 +68,8 @@ function App() {
   const [selectedVariant, setSelectedVariant] = useState<string>('');
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     name: '',
     phone: '',
@@ -74,10 +77,11 @@ function App() {
     notes: '',
   });
 
-  // Handle scroll for navbar
+  // Handle scroll for navbar and back-to-top
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 100);
+      setShowBackToTop(window.scrollY > 600);
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
@@ -155,7 +159,7 @@ function App() {
         setCheckoutOpen(false);
         setCustomerInfo({ name: '', phone: '', address: '', notes: '' });
       } else {
-        toast.error('Erreur lors de l\'envoi. Réessayez ou appelez-nous.');
+        toast.error('Erreur lors de l\'envoi. Réessayez ou contactez-nous par email.');
       }
     } catch {
       toast.error('Erreur réseau. Vérifiez votre connexion.');
@@ -214,6 +218,7 @@ function App() {
               ))}
             </div>
 
+            <div className="flex items-center gap-2">
             {/* Cart */}
             <Sheet>
               <SheetTrigger asChild>
@@ -296,7 +301,58 @@ function App() {
                 )}
               </SheetContent>
             </Sheet>
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 hover:bg-white/10 rounded-full transition-colors"
+            >
+              {mobileMenuOpen ? (
+                <X className={`w-6 h-6 ${isScrolled ? 'text-moroccan-brown' : 'text-white'}`} />
+              ) : (
+                <Menu className={`w-6 h-6 ${isScrolled ? 'text-moroccan-brown' : 'text-white'}`} />
+              )}
+            </button>
+            </div>
           </div>
+
+          {/* Mobile Menu Dropdown */}
+          {mobileMenuOpen && (
+            <div className="md:hidden mt-4 pb-4 animate-slide-up">
+              <div className={`flex flex-col gap-2 ${isScrolled ? 'bg-white/90' : 'bg-black/40'} backdrop-blur-sm rounded-xl p-4`}>
+                {[
+                  { label: 'Nos Plats', id: 'menu' },
+                  { label: 'Comment Ça Marche', id: 'how-it-works' },
+                  { label: 'Avis', id: 'testimonials' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => { scrollToSection(item.id); setMobileMenuOpen(false); }}
+                    className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                      isScrolled
+                        ? 'text-moroccan-brown hover:bg-moroccan-red/10 hover:text-moroccan-red'
+                        : 'text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {item.label}
+                    <ChevronRight className="w-4 h-4 opacity-50" />
+                  </button>
+                ))}
+                <Link
+                  to="/politique"
+                  className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                    isScrolled
+                      ? 'text-moroccan-brown hover:bg-moroccan-red/10 hover:text-moroccan-red'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Politique
+                  <ChevronRight className="w-4 h-4 opacity-50" />
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -350,10 +406,15 @@ function App() {
             <br />
             <span className="text-moroccan-gold">Saveurs Royales</span>
           </h1>
-          <p className="text-lg sm:text-xl text-white/90 mb-8 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '0.2s' }}>
-            Découvrez l'authenticité de la cuisine marocaine avec nos meal boxes 
+          <p className="text-lg sm:text-xl text-white/90 mb-4 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '0.2s' }}>
+            Découvrez l'authenticité de la cuisine marocaine avec nos meal boxes
             préparées avec amour et livrées à région du Grand Montréal
           </p>
+          <div className="flex items-center justify-center gap-6 text-white/70 text-sm mb-8 animate-slide-up" style={{ animationDelay: '0.3s' }}>
+            <span className="flex items-center gap-1"><Truck className="w-4 h-4" /> Livraison rapide</span>
+            <span className="flex items-center gap-1"><ChefHat className="w-4 h-4" /> Fait maison</span>
+            <span className="flex items-center gap-1"><Heart className="w-4 h-4" /> 100% authentique</span>
+          </div>
           <div className="flex flex-col sm:flex-row gap-4 justify-center animate-slide-up" style={{ animationDelay: '0.4s' }}>
             <Button 
               onClick={() => scrollToSection('menu')}
@@ -711,6 +772,7 @@ function App() {
                 <li><button onClick={() => scrollToSection('menu')} className="hover:text-moroccan-gold transition-colors">Notre Menu</button></li>
                 <li><button onClick={() => scrollToSection('how-it-works')} className="hover:text-moroccan-gold transition-colors">Comment Ça Marche</button></li>
                 <li><button onClick={() => scrollToSection('testimonials')} className="hover:text-moroccan-gold transition-colors">Avis Clients</button></li>
+                <li><Link to="/politique" className="hover:text-moroccan-gold transition-colors">Politique de Livraison & Retours</Link></li>
               </ul>
             </div>
             <div>
@@ -718,11 +780,11 @@ function App() {
               <ul className="space-y-3 text-white/70 text-sm">
                 <li className="flex items-center gap-2">
                   <Globe className="w-4 h-4 text-moroccan-gold" />
-                  www.bledcrate.com
+                  <a href="https://www.bledcrate.ca" className="hover:text-moroccan-gold transition-colors">www.bledcrate.ca</a>
                 </li>
                 <li className="flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-moroccan-gold" />
-                  438-808-412
+                  <Mail className="w-4 h-4 text-moroccan-gold" />
+                  <a href="mailto:contact@bledcrate.ca" className="hover:text-moroccan-gold transition-colors">contact@bledcrate.ca</a>
                 </li>
                 <li className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-moroccan-gold" />
@@ -733,14 +795,11 @@ function App() {
             <div>
               <h4 className="font-display text-xl mb-4">Suivez-Nous</h4>
               <div className="flex gap-4">
-                <a href="#" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
+                <a href="https://www.instagram.com/bledcrate/" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
                   <Instagram className="w-5 h-5" />
                 </a>
-                <a href="#" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
-                  <Facebook className="w-5 h-5" />
-                </a>
-                <a href="#" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
-                  <Twitter className="w-5 h-5" />
+                <a href="https://www.tiktok.com/@bledcrate" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center hover:bg-moroccan-red transition-colors">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 0 0-.79-.05A6.34 6.34 0 0 0 3.15 15a6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.34-6.34V8.87a8.16 8.16 0 0 0 4.76 1.52v-3.4a4.85 4.85 0 0 1-1-.3z"/></svg>
                 </a>
               </div>
             </div>
@@ -756,8 +815,8 @@ function App() {
           </div>
           
           <div className="text-center text-white/50 text-sm">
-            <p>© 2024 BledCrate. Tous droits réservés. | Saveurs Authentiques du Maroc</p>
-            <p className="mt-1">région du Grand Montréal, Québec | 438-808-412 | www.bledcrate.com</p>
+            <p>© 2026 BledCrate. Tous droits réservés. | Saveurs Authentiques du Maroc</p>
+            <p className="mt-1">région du Grand Montréal, Québec | contact@bledcrate.ca | <a href="https://www.bledcrate.ca" className="hover:text-moroccan-gold transition-colors">www.bledcrate.ca</a></p>
           </div>
         </div>
       </footer>
@@ -875,6 +934,27 @@ function App() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Back to Top Button */}
+      {showBackToTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 right-6 z-40 w-12 h-12 bg-moroccan-red text-white rounded-full shadow-lg flex items-center justify-center hover:bg-moroccan-red-dark transition-all animate-scale-in hover:scale-110"
+          aria-label="Retour en haut"
+        >
+          <ArrowUp className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Floating Contact Button */}
+      <a
+        href="mailto:contact@bledcrate.ca"
+        className="fixed bottom-6 left-6 z-40 flex items-center gap-2 bg-moroccan-brown text-white px-4 py-3 rounded-full shadow-lg hover:bg-moroccan-brown-light transition-all hover:scale-105 group"
+        aria-label="Nous contacter"
+      >
+        <Mail className="w-5 h-5" />
+        <span className="hidden sm:inline text-sm font-medium">Nous contacter</span>
+      </a>
 
       {/* Toast Notifications */}
       <Toaster position="top-right" richColors />
