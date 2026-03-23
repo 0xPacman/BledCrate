@@ -28,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast, Toaster } from 'sonner';
 import menuData from '@/data/menu.json';
+import { fetchProducts as apiFetchProducts, createCheckout, validatePromo } from '@/lib/api';
 import './App.css';
 
 // Types
@@ -47,20 +48,18 @@ interface CartItem extends MenuItem {
   selectedVariant?: string;
 }
 
-// Menu Data — edit src/data/menu.json to add, remove or update products
-const menuItems: MenuItem[] = menuData.menuItems as MenuItem[];
-
-// Testimonials — edit src/data/menu.json to update reviews
+// Fallback data from JSON
+const fallbackMenuItems: MenuItem[] = menuData.menuItems as MenuItem[];
 const testimonials = menuData.testimonials;
 
 interface CustomerInfo {
   name: string;
+  email: string;
   phone: string;
   address: string;
   notes: string;
+  promoCode: string;
 }
-
-const WEB3FORMS_KEY = '45c5d973-c371-49f1-aba6-71053b2a9bd2';
 
 function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -71,12 +70,26 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(fallbackMenuItems);
+  const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number } | null>(null);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     name: '',
+    email: '',
     phone: '',
     address: '',
     notes: '',
+    promoCode: '',
   });
+
+  // Load products from API (fallback to JSON)
+  useEffect(() => {
+    apiFetchProducts()
+      .then(products => {
+        const active = products.filter(p => p.active);
+        if (active.length > 0) setMenuItems(active as MenuItem[]);
+      })
+      .catch(() => { /* use fallback JSON data */ });
+  }, []);
 
   // Handle scroll for navbar and back-to-top
   useEffect(() => {
@@ -128,42 +141,54 @@ function App() {
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Send order via Web3Forms
+  // Apply promo code
+  const applyPromoCode = async () => {
+    if (!customerInfo.promoCode.trim()) return;
+    try {
+      const result = await validatePromo(customerInfo.promoCode.trim());
+      if (result.valid) {
+        setPromoApplied({ code: customerInfo.promoCode.trim().toUpperCase(), discount: result.discount_percent });
+        toast.success(`Code promo appliqué : -${result.discount_percent}%`);
+      } else {
+        setPromoApplied(null);
+        toast.error('Code promo invalide ou expiré');
+      }
+    } catch {
+      setPromoApplied(null);
+      toast.error('Code promo invalide');
+    }
+  };
+
+  const discountAmount = promoApplied ? (cartTotal * promoApplied.discount / 100) : 0;
+  const finalTotal = cartTotal - discountAmount;
+
+  // Send order via Stripe Checkout
   const sendOrder = async () => {
-    if (!customerInfo.name || !customerInfo.phone || !customerInfo.address) {
+    if (!customerInfo.name || !customerInfo.email || !customerInfo.phone || !customerInfo.address) {
       toast.error('Veuillez remplir tous les champs obligatoires.');
       return;
     }
     setIsSubmitting(true);
-    const orderLines = cart
-      .map(i => `• ${i.name}${i.selectedVariant ? ` (${i.selectedVariant})` : ''} x${i.quantity} — ${(i.price * i.quantity).toFixed(2)} $`)
-      .join('\n');
-    const body = {
-      access_key: WEB3FORMS_KEY,
-      subject: `🛒 Nouvelle commande BledCrate — ${customerInfo.name}`,
-      from_name: 'BledCrate Website',
-      name: customerInfo.name,
-      phone: customerInfo.phone,
-      address: customerInfo.address,
-      message: `Nouvelle commande reçue !\n\n👤 Client : ${customerInfo.name}\n📞 Téléphone : ${customerInfo.phone}\n📍 Adresse : ${customerInfo.address}\n📝 Notes : ${customerInfo.notes || 'Aucune'}\n\n🍽️ Commande :\n${orderLines}\n\n💰 Total : ${cartTotal.toFixed(2)} $`,
-    };
     try {
-      const res = await fetch('https://api.web3forms.com/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
+      const { url } = await createCheckout({
+        items: cart.map(i => ({
+          name: i.name,
+          variant: i.selectedVariant,
+          quantity: i.quantity,
+          price: i.price,
+        })),
+        customer: {
+          name: customerInfo.name,
+          email: customerInfo.email,
+          phone: customerInfo.phone,
+          address: customerInfo.address,
+          notes: customerInfo.notes,
+        },
+        promo_code: promoApplied?.code,
       });
-      const data = await res.json();
-      if (data.success) {
-        toast.success('Commande envoyée avec succès ! Nous vous contacterons bientôt.', { duration: 6000 });
-        setCart([]);
-        setCheckoutOpen(false);
-        setCustomerInfo({ name: '', phone: '', address: '', notes: '' });
-      } else {
-        toast.error('Erreur lors de l\'envoi. Réessayez ou contactez-nous par email.');
-      }
+      window.location.href = url;
     } catch {
-      toast.error('Erreur réseau. Vérifiez votre connexion.');
+      toast.error('Erreur lors de la création du paiement. Réessayez ou contactez-nous par email.');
     } finally {
       setIsSubmitting(false);
     }
@@ -843,13 +868,41 @@ function App() {
             <div className="bg-white rounded-xl p-4 space-y-1 text-sm">
               {cart.map(i => (
                 <div key={`${i.id}-${i.selectedVariant}`} className="flex justify-between text-moroccan-brown">
-                  <span>{i.name}{i.selectedVariant ? ` (${i.selectedVariant})` : ''} ×{i.quantity}</span>
+                  <span>{i.name}{i.selectedVariant ? ` (${i.selectedVariant})` : ''} x{i.quantity}</span>
                   <span className="font-semibold">{(i.price * i.quantity).toFixed(2)} $</span>
                 </div>
               ))}
-              <div className="border-t pt-2 flex justify-between font-bold text-moroccan-red">
-                <span>Total</span>
-                <span>{cartTotal.toFixed(2)} $</span>
+              <div className="border-t pt-2 space-y-1">
+                <div className="flex justify-between text-moroccan-brown">
+                  <span>Sous-total</span>
+                  <span className="font-semibold">{cartTotal.toFixed(2)} $</span>
+                </div>
+                {promoApplied && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Promo ({promoApplied.code}) -{promoApplied.discount}%</span>
+                    <span>-{discountAmount.toFixed(2)} $</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-moroccan-red text-base">
+                  <span>Total</span>
+                  <span>{finalTotal.toFixed(2)} $</span>
+                </div>
+              </div>
+            </div>
+            {/* Promo Code */}
+            <div>
+              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Code promo</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ex: BIENVENUE10"
+                  value={customerInfo.promoCode}
+                  onChange={e => setCustomerInfo(p => ({ ...p, promoCode: e.target.value.toUpperCase() }))}
+                  className="flex-1 border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
+                />
+                <Button onClick={applyPromoCode} variant="outline" className="border-moroccan-brown/20 text-moroccan-brown shrink-0">
+                  Appliquer
+                </Button>
               </div>
             </div>
             {/* Form Fields */}
@@ -861,6 +914,16 @@ function App() {
                   placeholder="Ex: Fatima Benali"
                   value={customerInfo.name}
                   onChange={e => setCustomerInfo(p => ({ ...p, name: e.target.value }))}
+                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Email *</label>
+                <input
+                  type="email"
+                  placeholder="Ex: fatima@email.com"
+                  value={customerInfo.email}
+                  onChange={e => setCustomerInfo(p => ({ ...p, email: e.target.value }))}
                   className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
                 />
               </div>
@@ -900,8 +963,9 @@ function App() {
               disabled={isSubmitting}
               className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6 font-semibold text-base"
             >
-              {isSubmitting ? 'Envoi en cours...' : `Confirmer la commande — ${cartTotal.toFixed(2)} $`}
+              {isSubmitting ? 'Redirection vers le paiement...' : `Payer ${finalTotal.toFixed(2)} $ — Stripe`}
             </Button>
+            <p className="text-xs text-moroccan-brown/40 text-center">Paiement sécurisé par Stripe</p>
           </div>
         </DialogContent>
       </Dialog>
