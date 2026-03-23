@@ -187,6 +187,14 @@ function App() {
         },
         promo_code: promoApplied?.code,
       });
+      // Save order data to localStorage before redirect so success page can recover it
+      localStorage.setItem('bledcrate_pending_order', JSON.stringify({
+        items: cart.map(i => ({ name: i.name, variant: i.selectedVariant, quantity: i.quantity, price: i.price })),
+        customer: { name: customerInfo.name, email: customerInfo.email },
+        total: finalTotal,
+        promo: promoApplied?.code || null,
+        date: new Date().toISOString(),
+      }));
       window.location.href = url;
     } catch {
       toast.error('Erreur lors de la création du paiement. Réessayez ou contactez-nous par email.');
