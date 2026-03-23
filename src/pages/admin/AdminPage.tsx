@@ -8,24 +8,24 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast, Toaster } from 'sonner';
 import * as api from '@/lib/api';
-import type { Product, Order, PromoCode } from '@/lib/api';
+import type { Product, ProductVariant, Order, PromoCode } from '@/lib/api';
 
 type Tab = 'products' | 'orders' | 'promos';
 type ProductForm = {
   name: string; description: string; price: string; image: string;
-  category: 'entree' | 'plat' | 'dessert'; tags: string; variants: string; active: boolean;
+  category: 'entree' | 'plat' | 'dessert'; tags: string; variants: ProductVariant[]; active: boolean;
 };
 type PromoForm = {
   code: string; discount_percent: string; max_uses: string; active: boolean; expires_at: string;
 };
 
-const emptyProduct: ProductForm = { name: '', description: '', price: '', image: '', category: 'plat', tags: '', variants: '', active: true };
+const emptyProduct: ProductForm = { name: '', description: '', price: '', image: '', category: 'plat', tags: '', variants: [], active: true };
 const emptyPromo: PromoForm = { code: '', discount_percent: '', max_uses: '', active: true, expires_at: '' };
 
 function productToForm(p: Product): ProductForm {
   return {
     name: p.name, description: p.description, price: String(p.price), image: p.image,
-    category: p.category, tags: (p.tags || []).join(', '), variants: (p.variants || []).join(', '), active: p.active,
+    category: p.category, tags: (p.tags || []).join(', '), variants: p.variants || [], active: p.active,
   };
 }
 
@@ -149,7 +149,7 @@ function ProductsPanel() {
       name: form.name, description: form.description, price: parseFloat(form.price) || 0,
       image: form.image, category: form.category, active: form.active,
       tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-      variants: form.variants ? form.variants.split(',').map(v => v.trim()).filter(Boolean) : [],
+      variants: form.variants,
     };
     try {
       if (editingId) { await api.updateProduct(editingId, data); toast.success('Produit mis à jour'); }
@@ -259,7 +259,21 @@ function ProductsPanel() {
             <Input label="Image (URL)" value={form.image} onChange={e => set('image', e.target.value)} placeholder="/image.jpg ou https://..." />
             {form.image && <img src={form.image} alt="Preview" className="h-24 w-auto rounded-lg object-cover" />}
             <Input label="Tags (séparés par virgule)" value={form.tags} onChange={e => set('tags', e.target.value)} placeholder="Populaire, Nouveau, Épicé" />
-            <Input label="Variantes (séparées par virgule)" value={form.variants} onChange={e => set('variants', e.target.value)} placeholder="Poulet, Agneau, Végétarien" />
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Variantes</label>
+              {form.variants.map((v, i) => (
+                <div key={i} className="flex items-center gap-2 mb-2">
+                  <input value={v.name} onChange={e => { const vs = [...form.variants]; vs[i] = { ...vs[i], name: e.target.value }; set('variants', vs); }}
+                    placeholder="Nom (ex: Agneau)" className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red" />
+                  <input type="number" step="0.01" value={v.price} onChange={e => { const vs = [...form.variants]; vs[i] = { ...vs[i], price: parseFloat(e.target.value) || 0 }; set('variants', vs); }}
+                    placeholder="+/- $" className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red" />
+                  <button type="button" onClick={() => { const vs = form.variants.filter((_, j) => j !== i); set('variants', vs); }}
+                    className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => set('variants', [...form.variants, { name: '', price: 0 }])}
+                className="text-sm text-moroccan-red hover:underline flex items-center gap-1 mt-1"><Plus className="w-3 h-3" /> Ajouter une variante</button>
+            </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.active} onChange={e => set('active', e.target.checked)} className="w-4 h-4 accent-moroccan-red" />
               <span className="text-sm font-medium text-gray-700">Actif (visible sur le site)</span>

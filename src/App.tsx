@@ -32,6 +32,11 @@ import { fetchProducts as apiFetchProducts, createCheckout, validatePromo } from
 import './App.css';
 
 // Types
+interface Variant {
+  name: string;
+  price: number; // adjustment from base price (+/- $)
+}
+
 interface MenuItem {
   id: string;
   name: string;
@@ -40,12 +45,13 @@ interface MenuItem {
   image: string;
   category: 'entree' | 'plat' | 'dessert';
   tags?: string[];
-  variants?: string[];
+  variants?: Variant[];
 }
 
 interface CartItem extends MenuItem {
   quantity: number;
   selectedVariant?: string;
+  variantPrice?: number; // final price after variant adjustment
 }
 
 // Fallback data from JSON
@@ -65,7 +71,7 @@ function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isScrolled, setIsScrolled] = useState(false);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [selectedVariant, setSelectedVariant] = useState<string>('');
+  const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -102,23 +108,25 @@ function App() {
   }, []);
 
   // Add to cart
-  const addToCart = (item: MenuItem, variant?: string) => {
+  const addToCart = (item: MenuItem, variant?: Variant) => {
+    const variantName = variant?.name;
+    const finalPrice = variant ? item.price + variant.price : item.price;
     setCart(prev => {
-      const existingItem = prev.find(i => i.id === item.id && i.selectedVariant === variant);
+      const existingItem = prev.find(i => i.id === item.id && i.selectedVariant === variantName);
       if (existingItem) {
-        return prev.map(i => 
-          i.id === item.id && i.selectedVariant === variant 
+        return prev.map(i =>
+          i.id === item.id && i.selectedVariant === variantName
             ? { ...i, quantity: i.quantity + 1 }
             : i
         );
       }
-      return [...prev, { ...item, quantity: 1, selectedVariant: variant }];
+      return [...prev, { ...item, price: finalPrice, quantity: 1, selectedVariant: variantName, variantPrice: finalPrice }];
     });
     toast.success(`${item.name} ajouté au panier !`, {
-      description: variant ? `Variant: ${variant}` : undefined,
+      description: variantName ? `${variantName}${variant!.price !== 0 ? ` (${variant!.price > 0 ? '+' : ''}${variant!.price.toFixed(2)} $)` : ''}` : undefined,
     });
     setSelectedItem(null);
-    setSelectedVariant('');
+    setSelectedVariant(null);
   };
 
   // Remove from cart
@@ -574,7 +582,7 @@ function App() {
                             onClick={() => {
                               if (item.variants && item.variants.length > 0) {
                                 setSelectedItem(item);
-                                setSelectedVariant(item.variants[0]);
+                                setSelectedVariant(item.variants[0] || null);
                               } else {
                                 addToCart(item);
                               }
@@ -584,9 +592,9 @@ function App() {
                             <Plus className="w-5 h-5" />
                           </Button>
                         </div>
-                        {item.variants && (
+                        {item.variants && item.variants.length > 0 && (
                           <p className="text-xs text-moroccan-brown/50 mt-2">
-                            {item.variants.length} variantes disponibles
+                            {item.variants.length} variante{item.variants.length > 1 ? 's' : ''} — à partir de {Math.min(...item.variants.map(v => item.price + v.price)).toFixed(2)} $
                           </p>
                         )}
                       </div>
@@ -997,25 +1005,36 @@ function App() {
               Choisissez votre variante préférée
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 mt-4">
-            {selectedItem?.variants?.map((variant) => (
-              <button
-                key={variant}
-                onClick={() => setSelectedVariant(variant)}
-                className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
-                  selectedVariant === variant
-                    ? 'border-moroccan-red bg-moroccan-red/10'
-                    : 'border-moroccan-brown/20 hover:border-moroccan-red/50'
-                }`}
-              >
-                <span className="font-medium text-moroccan-brown">{variant}</span>
-              </button>
-            ))}
+          <div className="space-y-3 mt-4">
+            {selectedItem?.variants?.map((variant) => {
+              const variantTotal = (selectedItem?.price || 0) + variant.price;
+              return (
+                <button
+                  key={variant.name}
+                  onClick={() => setSelectedVariant(variant)}
+                  className={`w-full p-4 rounded-xl border-2 text-left transition-all flex items-center justify-between ${
+                    selectedVariant?.name === variant.name
+                      ? 'border-moroccan-red bg-moroccan-red/10'
+                      : 'border-moroccan-brown/20 hover:border-moroccan-red/50'
+                  }`}
+                >
+                  <span className="font-medium text-moroccan-brown">{variant.name}</span>
+                  <span className="text-sm font-semibold">
+                    <span className="text-moroccan-red">{variantTotal.toFixed(2)} $</span>
+                    {variant.price !== 0 && (
+                      <span className={`ml-1.5 text-xs ${variant.price > 0 ? 'text-orange-500' : 'text-green-600'}`}>
+                        ({variant.price > 0 ? '+' : ''}{variant.price.toFixed(2)} $)
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
             <Button
-              onClick={() => selectedItem && addToCart(selectedItem, selectedVariant)}
-              className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6"
+              onClick={() => selectedItem && selectedVariant && addToCart(selectedItem, selectedVariant)}
+              className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6 mt-2"
             >
-              Ajouter au Panier - {selectedItem?.price.toFixed(2)} $
+              Ajouter au Panier — {selectedItem && selectedVariant ? (selectedItem.price + selectedVariant.price).toFixed(2) : selectedItem?.price.toFixed(2)} $
             </Button>
           </div>
         </DialogContent>

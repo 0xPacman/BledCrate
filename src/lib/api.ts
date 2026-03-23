@@ -1,6 +1,11 @@
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Types
+export interface ProductVariant {
+  name: string;
+  price: number; // adjustment from base price (+/- $)
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -9,7 +14,7 @@ export interface Product {
   image: string;
   category: 'entree' | 'plat' | 'dessert';
   tags: string[];
-  variants: string[];
+  variants: ProductVariant[];
   active: boolean;
 }
 
