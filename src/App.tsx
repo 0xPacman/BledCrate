@@ -18,8 +18,15 @@ import {
   Mail,
   ArrowUp,
   ChevronRight,
+  ChevronLeft,
   Package,
   Percent,
+  Check,
+  CalendarCheck,
+  UtensilsCrossed,
+  Salad,
+  CakeSlice,
+  ArrowRight,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -30,8 +37,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast, Toaster } from 'sonner';
 import menuData from '@/data/menu.json';
-import { fetchProducts as apiFetchProducts, createCheckout, validatePromo, fetchPublicSettings } from '@/lib/api';
-import type { SiteSettings } from '@/lib/api';
+import { fetchProducts as apiFetchProducts, createCheckout, validatePromo, fetchPublicSettings, fetchSubscriptionPlans, createSubscription } from '@/lib/api';
+import type { SiteSettings, SubscriptionPlan } from '@/lib/api';
 import './App.css';
 
 // Types
@@ -82,6 +89,24 @@ function App() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(fallbackMenuItems);
   const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
+
+  // Purchase flow state
+  type PurchaseMode = null | 'onetime' | 'subscription';
+  type OnetimeStep = 'entree' | 'plat' | 'dessert' | 'review';
+  type SubStep = 'meals' | 'plats' | 'extras' | 'review';
+  const [purchaseMode, setPurchaseMode] = useState<PurchaseMode>(null);
+  const [onetimeStep, setOnetimeStep] = useState<OnetimeStep>('entree');
+  const [subStep, setSubStep] = useState<SubStep>('meals');
+  const [onetimeSelections, setOnetimeSelections] = useState<Record<string, { item: MenuItem; qty: number; variant?: Variant }>>({});
+  const [subMealCount, setSubMealCount] = useState<number>(0);
+  const [subSelectedPlan, setSubSelectedPlan] = useState<SubscriptionPlan | null>(null);
+  const [subPlats, setSubPlats] = useState<Record<string, { item: MenuItem; qty: number }>>({});
+  const [subExtras, setSubExtras] = useState<Record<string, { item: MenuItem; qty: number; category: string }>>({});
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
+  const [subCheckoutOpen, setSubCheckoutOpen] = useState(false);
+  const [subCustomerInfo, setSubCustomerInfo] = useState({ name: '', email: '', phone: '', address: '' });
+  const [subSubmitting, setSubSubmitting] = useState(false);
+
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     name: '',
     email: '',
@@ -102,6 +127,9 @@ function App() {
     fetchPublicSettings()
       .then(s => setSiteSettings(s))
       .catch(() => { /* use defaults */ });
+    fetchSubscriptionPlans()
+      .then(p => setSubscriptionPlans(p))
+      .catch(() => {});
   }, []);
 
   // Handle scroll for navbar and back-to-top
@@ -207,7 +235,7 @@ function App() {
           name: i.name,
           variant: i.selectedVariant,
           quantity: i.quantity,
-          price: Math.round(i.price * 1.15 * 100) / 100,
+          price: i.price,
         })),
         customer: {
           name: customerInfo.name,
@@ -241,6 +269,174 @@ function App() {
     const element = document.getElementById(id);
     element?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // ── One-time purchase helpers ──
+  const onetimeSteps: OnetimeStep[] = ['entree', 'plat', 'dessert', 'review'];
+  const onetimeStepLabels: Record<OnetimeStep, string> = { entree: 'Entrées', plat: 'Plats', dessert: 'Desserts', review: 'Récapitulatif' };
+  const onetimeStepIcons: Record<OnetimeStep, typeof Salad> = { entree: Salad, plat: UtensilsCrossed, dessert: CakeSlice, review: Check };
+  const currentOnetimeIdx = onetimeSteps.indexOf(onetimeStep);
+
+  const toggleOnetimeItem = (item: MenuItem, variant?: Variant) => {
+    const key = item.id + (variant?.name || '');
+    setOnetimeSelections(prev => {
+      const existing = prev[key];
+      if (existing) {
+        const newQty = existing.qty + 1;
+        return { ...prev, [key]: { ...existing, qty: newQty } };
+      }
+      return { ...prev, [key]: { item, qty: 1, variant } };
+    });
+  };
+
+  const updateOnetimeQty = (key: string, delta: number) => {
+    setOnetimeSelections(prev => {
+      const item = prev[key];
+      if (!item) return prev;
+      const newQty = item.qty + delta;
+      if (newQty <= 0) {
+        const copy = { ...prev };
+        delete copy[key];
+        return copy;
+      }
+      return { ...prev, [key]: { ...item, qty: newQty } };
+    });
+  };
+
+  const onetimeItemsForCategory = (cat: string) =>
+    Object.entries(onetimeSelections).filter(([, v]) => v.item.category === cat);
+
+  const onetimeCategoryCount = (cat: string) =>
+    onetimeItemsForCategory(cat).reduce((s, [, v]) => s + v.qty, 0);
+
+  const addOnetimeToCart = () => {
+    Object.values(onetimeSelections).forEach(({ item, qty, variant }) => {
+      const finalPrice = variant ? item.price + variant.price : item.price;
+      setCart(prev => {
+        const existing = prev.find(i => i.id === item.id && i.selectedVariant === variant?.name);
+        if (existing) {
+          return prev.map(i =>
+            i.id === item.id && i.selectedVariant === variant?.name
+              ? { ...i, quantity: i.quantity + qty }
+              : i
+          );
+        }
+        return [...prev, { ...item, price: finalPrice, quantity: qty, selectedVariant: variant?.name, variantPrice: finalPrice }];
+      });
+    });
+    toast.success('Box ajoutée au panier !');
+    setOnetimeSelections({});
+    setOnetimeStep('entree');
+    setPurchaseMode(null);
+    setCheckoutOpen(true);
+  };
+
+  // ── Subscription builder helpers ──
+  const subSteps: SubStep[] = ['meals', 'plats', 'extras', 'review'];
+  const subStepLabels: Record<SubStep, string> = { meals: 'Formule', plats: 'Plats', extras: 'Extras', review: 'Récapitulatif' };
+  const currentSubIdx = subSteps.indexOf(subStep);
+
+  const subPlatsCount = Object.values(subPlats).reduce((s, v) => s + v.qty, 0);
+  const subExtrasCount = Object.values(subExtras).reduce((s, v) => s + v.qty, 0);
+
+  const toggleSubPlat = (item: MenuItem) => {
+    setSubPlats(prev => {
+      const existing = prev[item.id];
+      if (existing) {
+        return { ...prev, [item.id]: { ...existing, qty: existing.qty + 1 } };
+      }
+      return { ...prev, [item.id]: { item, qty: 1 } };
+    });
+  };
+
+  const updateSubPlatQty = (id: string, delta: number) => {
+    setSubPlats(prev => {
+      const item = prev[id];
+      if (!item) return prev;
+      const newQty = item.qty + delta;
+      if (newQty <= 0) {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      }
+      return { ...prev, [id]: { ...item, qty: newQty } };
+    });
+  };
+
+  const toggleSubExtra = (item: MenuItem) => {
+    setSubExtras(prev => {
+      const existing = prev[item.id];
+      if (existing) {
+        return { ...prev, [item.id]: { ...existing, qty: existing.qty + 1 } };
+      }
+      return { ...prev, [item.id]: { item, qty: 1, category: item.category } };
+    });
+  };
+
+  const updateSubExtraQty = (id: string, delta: number) => {
+    setSubExtras(prev => {
+      const item = prev[id];
+      if (!item) return prev;
+      const newQty = item.qty + delta;
+      if (newQty <= 0) {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      }
+      return { ...prev, [id]: { ...item, qty: newQty } };
+    });
+  };
+
+  const handleSubscribe = async () => {
+    if (!subSelectedPlan) return;
+    if (!subCustomerInfo.name || !subCustomerInfo.email || !subCustomerInfo.phone || !subCustomerInfo.address) {
+      toast.error('Veuillez remplir tous les champs.');
+      return;
+    }
+    // Fallback plans (no stripe_price_id) can't be subscribed to
+    if (!subSelectedPlan.stripe_price_id) {
+      toast.error('Ce plan n\'est pas encore configuré pour le paiement. Veuillez contacter le support.');
+      return;
+    }
+    setSubSubmitting(true);
+    try {
+      const { url } = await createSubscription({ plan_id: subSelectedPlan.id, customer: subCustomerInfo });
+      if (!url) {
+        toast.error('Erreur lors de la création de la session de paiement.');
+        return;
+      }
+      localStorage.setItem('bledcrate_sub_selections', JSON.stringify({
+        plan: subSelectedPlan,
+        plats: Object.values(subPlats).map(v => ({ name: v.item.name, qty: v.qty })),
+        extras: Object.values(subExtras).map(v => ({ name: v.item.name, qty: v.qty, category: v.category })),
+      }));
+      window.location.href = url;
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (msg.includes('non configuré') || msg.includes('stripe')) {
+        toast.error('Ce plan n\'est pas encore configuré. Contactez-nous à contact@bledcrate.ca');
+      } else {
+        toast.error('Erreur lors de la création de l\'abonnement. Réessayez ou contactez-nous.');
+      }
+    } finally {
+      setSubSubmitting(false);
+    }
+  };
+
+  const resetPurchaseFlow = () => {
+    setPurchaseMode(null);
+    setOnetimeStep('entree');
+    setOnetimeSelections({});
+    setSubStep('meals');
+    setSubMealCount(0);
+    setSubSelectedPlan(null);
+    setSubPlats({});
+    setSubExtras({});
+  };
+
+  // Box settings from admin
+  const boxOnetimeEnabled = siteSettings?.box_onetime_enabled !== 'false';
+  const boxSubscriptionEnabled = siteSettings?.box_subscription_enabled !== 'false';
+  const boxSubMealCounts = (siteSettings?.box_sub_meal_counts || '3,5,7').split(',').map(Number).filter(n => n > 0);
 
   return (
     <div className="min-h-screen bg-moroccan-cream">
@@ -598,7 +794,7 @@ function App() {
         </div>
       </section>
 
-      {/* Menu Section */}
+      {/* Purchase Flow Section */}
       <section id="menu" className="py-20 px-4 sm:px-6 lg:px-8 relative">
         {/* Zellige Background Pattern */}
         <div className="absolute inset-0 opacity-5">
@@ -608,8 +804,6 @@ function App() {
             backgroundRepeat: 'repeat'
           }} />
         </div>
-        
-        {/* Zellige Border Top */}
         <div className="absolute top-0 left-0 right-0 h-4 overflow-hidden">
           <div className="w-full h-full" style={{
             backgroundImage: 'url(/zellige-pattern.jpg)',
@@ -619,6 +813,7 @@ function App() {
         </div>
 
         <div className="max-w-7xl mx-auto relative z-10">
+          {/* Section Header */}
           <div className="text-center mb-16">
             <div className="flex justify-center mb-4">
               <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-moroccan-red shadow-lg">
@@ -630,16 +825,19 @@ function App() {
               Notre Sélection
             </Badge>
             <h2 className="font-display text-5xl sm:text-6xl text-moroccan-brown mb-4">
-              Notre Marché Aux Saveurs
+              {purchaseMode === null ? 'Composez Votre Box' : purchaseMode === 'onetime' ? 'Votre Box Unique' : 'Votre Abonnement'}
             </h2>
             <p className="text-moroccan-brown/70 text-lg max-w-2xl mx-auto">
-              Des recettes traditionnelles transmises de génération en génération, 
-              préparées avec les meilleurs ingrédients
+              {purchaseMode === null
+                ? 'Choisissez votre formule et composez votre repas marocain authentique'
+                : purchaseMode === 'onetime'
+                ? 'Sélectionnez vos plats préférés étape par étape'
+                : 'Choisissez votre formule et composez vos repas de la semaine'}
             </p>
           </div>
 
           {/* Bundle Promo Banner */}
-          {bundleEnabled && (
+          {bundleEnabled && purchaseMode === null && (
             <div className="mb-12 bg-gradient-to-r from-moroccan-red to-moroccan-orange rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 opacity-10">
                 <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-bl-full" />
@@ -651,7 +849,7 @@ function App() {
                 <div className="text-center sm:text-left flex-1">
                   <h3 className="font-display text-3xl sm:text-4xl mb-1">Offre Bundle</h3>
                   <p className="text-white/90 text-sm sm:text-base">
-                    Commandez <strong>{bundleMinItems} plats ou plus</strong> et économisez <strong>{bundleDiscountPercent}%</strong> automatiquement sur votre commande !
+                    Commandez <strong>{bundleMinItems} plats ou plus</strong> et économisez <strong>{bundleDiscountPercent}%</strong> automatiquement !
                   </p>
                 </div>
                 <div className="bg-white/20 backdrop-blur-sm rounded-xl px-6 py-3 text-center shrink-0">
@@ -662,85 +860,624 @@ function App() {
             </div>
           )}
 
-          <Tabs defaultValue="entree" className="w-full">
-            <TabsList className="flex justify-center mb-12 bg-white/50 p-2 rounded-full max-w-md mx-auto">
-              <TabsTrigger 
-                value="entree" 
-                className="px-6 py-3 rounded-full data-[state=active]:bg-moroccan-red data-[state=active]:text-white transition-all"
-              >
-                Entrées
-              </TabsTrigger>
-              <TabsTrigger 
-                value="plat"
-                className="px-6 py-3 rounded-full data-[state=active]:bg-moroccan-red data-[state=active]:text-white transition-all"
-              >
-                Plats
-              </TabsTrigger>
-              <TabsTrigger 
-                value="dessert"
-                className="px-6 py-3 rounded-full data-[state=active]:bg-moroccan-red data-[state=active]:text-white transition-all"
-              >
-                Desserts
-              </TabsTrigger>
-            </TabsList>
+          {/* ═══ STEP 0: Purchase Type Selector ═══ */}
+          {purchaseMode === null && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              {boxOnetimeEnabled && (
+                <button
+                  onClick={() => { setPurchaseMode('onetime'); setOnetimeStep('entree'); }}
+                  className="group bg-white rounded-2xl p-8 shadow-moroccan card-hover text-center border-2 border-transparent hover:border-moroccan-red transition-all"
+                >
+                  <div className="w-20 h-20 bg-moroccan-red/10 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:bg-moroccan-red group-hover:text-white transition-all">
+                    <ShoppingCart className="w-10 h-10 text-moroccan-red group-hover:text-white transition-colors" />
+                  </div>
+                  <h3 className="font-display text-3xl text-moroccan-brown mb-3">Achat Unique</h3>
+                  <p className="text-moroccan-brown/60 mb-4">
+                    Composez votre box complète : entrée, plat principal et dessert
+                  </p>
+                  <div className="flex items-center justify-center gap-4 text-sm text-moroccan-brown/50">
+                    <span className="flex items-center gap-1"><Salad className="w-4 h-4" /> Entrée</span>
+                    <span>+</span>
+                    <span className="flex items-center gap-1"><UtensilsCrossed className="w-4 h-4" /> Plat</span>
+                    <span>+</span>
+                    <span className="flex items-center gap-1"><CakeSlice className="w-4 h-4" /> Dessert</span>
+                  </div>
+                  <div className="mt-6 text-moroccan-red font-semibold flex items-center justify-center gap-1 group-hover:gap-2 transition-all">
+                    Commander <ArrowRight className="w-4 h-4" />
+                  </div>
+                </button>
+              )}
+              {boxSubscriptionEnabled && (
+                <button
+                  onClick={() => { setPurchaseMode('subscription'); setSubStep('meals'); }}
+                  className="group bg-white rounded-2xl p-8 shadow-moroccan card-hover text-center border-2 border-transparent hover:border-moroccan-gold relative overflow-hidden transition-all"
+                >
+                  <Badge className="absolute top-4 right-4 bg-moroccan-gold text-moroccan-brown">Économisez plus</Badge>
+                  <div className="w-20 h-20 bg-moroccan-gold/10 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:bg-moroccan-gold group-hover:text-white transition-all">
+                    <CalendarCheck className="w-10 h-10 text-moroccan-gold group-hover:text-white transition-colors" />
+                  </div>
+                  <h3 className="font-display text-3xl text-moroccan-brown mb-3">Abonnement</h3>
+                  <p className="text-moroccan-brown/60 mb-4">
+                    Recevez vos repas chaque semaine avec livraison gratuite
+                  </p>
+                  <div className="flex items-center justify-center gap-3 text-sm text-moroccan-brown/50">
+                    <span className="flex items-center gap-1"><Package className="w-4 h-4" /> Plats au choix</span>
+                    <span className="flex items-center gap-1"><Truck className="w-4 h-4" /> Livraison gratuite</span>
+                  </div>
+                  <div className="mt-6 text-moroccan-gold font-semibold flex items-center justify-center gap-1 group-hover:gap-2 transition-all">
+                    S'abonner <ArrowRight className="w-4 h-4" />
+                  </div>
+                </button>
+              )}
+            </div>
+          )}
 
-            {['entree', 'plat', 'dessert'].map((category) => (
-              <TabsContent key={category} value={category} className="mt-0">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {menuItems.filter(item => item.category === category).map((item, idx) => (
-                    <div 
-                      key={item.id}
-                      className="bg-white rounded-2xl overflow-hidden shadow-moroccan card-hover group animate-fade-in"
-                      style={{ animationDelay: `${idx * 0.1}s` }}
+          {/* ═══ ONE-TIME PURCHASE: Meal Builder Wizard ═══ */}
+          {purchaseMode === 'onetime' && (
+            <div>
+              {/* Back button */}
+              <button onClick={resetPurchaseFlow} className="flex items-center gap-1 text-moroccan-brown/60 hover:text-moroccan-red mb-6 transition-colors">
+                <ChevronLeft className="w-4 h-4" /> Retour au choix
+              </button>
+
+              {/* Step Progress */}
+              <div className="flex items-center justify-center gap-2 mb-12">
+                {onetimeSteps.map((step, idx) => {
+                  const Icon = onetimeStepIcons[step];
+                  const isActive = idx === currentOnetimeIdx;
+                  const isDone = idx < currentOnetimeIdx;
+                  return (
+                    <div key={step} className="flex items-center gap-2">
+                      {idx > 0 && <div className={`w-8 sm:w-16 h-0.5 ${isDone ? 'bg-moroccan-red' : 'bg-moroccan-brown/20'} transition-colors`} />}
+                      <button
+                        onClick={() => { if (isDone) setOnetimeStep(step); }}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                          isActive ? 'bg-moroccan-red text-white shadow-lg' : isDone ? 'bg-moroccan-red/20 text-moroccan-red cursor-pointer' : 'bg-moroccan-brown/10 text-moroccan-brown/40'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span className="hidden sm:inline">{onetimeStepLabels[step]}</span>
+                        {isDone && <Check className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Product Grid for current category step */}
+              {onetimeStep !== 'review' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-display text-2xl text-moroccan-brown">
+                      Choisissez vos {onetimeStepLabels[onetimeStep].toLowerCase()}
+                    </h3>
+                    <Badge className="bg-moroccan-red/10 text-moroccan-red">
+                      {onetimeCategoryCount(onetimeStep)} sélectionné{onetimeCategoryCount(onetimeStep) > 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {menuItems.filter(item => item.category === onetimeStep).map((item, idx) => {
+                      const isSelected = Object.entries(onetimeSelections).some(([, v]) => v.item.id === item.id);
+                      const selKey = item.id;
+                      const selQty = onetimeSelections[selKey]?.qty || 0;
+                      return (
+                        <div
+                          key={item.id}
+                          className={`bg-white rounded-2xl overflow-hidden shadow-moroccan group animate-fade-in border-2 transition-all ${
+                            isSelected ? 'border-moroccan-red shadow-lg' : 'border-transparent card-hover'
+                          }`}
+                          style={{ animationDelay: `${idx * 0.05}s` }}
+                        >
+                          <div className="relative img-zoom h-48">
+                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 w-8 h-8 bg-moroccan-red rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">
+                                {selQty}
+                              </div>
+                            )}
+                            {item.tags?.map(tag => (
+                              <Badge key={tag} className="absolute top-2 left-2 bg-moroccan-green text-white text-xs">{tag}</Badge>
+                            ))}
+                          </div>
+                          <div className="p-4">
+                            <h3 className="font-display text-xl text-moroccan-brown mb-1">{item.name}</h3>
+                            <p className="text-sm text-moroccan-brown/60 line-clamp-2 mb-3">{item.description}</p>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xl font-bold text-moroccan-red">{item.price.toFixed(2)} $</span>
+                              {isSelected ? (
+                                <div className="flex items-center gap-2">
+                                  <button onClick={() => updateOnetimeQty(selKey, -1)} className="w-8 h-8 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-red hover:text-white transition-colors">
+                                    <Minus className="w-4 h-4" />
+                                  </button>
+                                  <span className="font-bold w-6 text-center">{selQty}</span>
+                                  <button onClick={() => updateOnetimeQty(selKey, 1)} className="w-8 h-8 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-red hover:text-white transition-colors">
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  onClick={() => toggleOnetimeItem(item)}
+                                  className="bg-moroccan-red hover:bg-moroccan-red-dark text-white rounded-full w-10 h-10 p-0"
+                                >
+                                  <Plus className="w-5 h-5" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Navigation Buttons */}
+                  <div className="flex justify-between mt-10">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (currentOnetimeIdx === 0) resetPurchaseFlow();
+                        else setOnetimeStep(onetimeSteps[currentOnetimeIdx - 1]);
+                      }}
+                      className="border-moroccan-brown/20 text-moroccan-brown"
                     >
-                      <div className="relative img-zoom h-48">
-                        <img 
-                          src={item.image} 
-                          alt={item.name} 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        {item.tags?.map(tag => (
-                          <Badge 
-                            key={tag} 
-                            className="absolute top-2 left-2 bg-moroccan-green text-white text-xs"
-                          >
-                            {tag}
+                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      {currentOnetimeIdx === 0 ? 'Retour' : 'Précédent'}
+                    </Button>
+                    <Button
+                      onClick={() => setOnetimeStep(onetimeSteps[currentOnetimeIdx + 1])}
+                      className="bg-moroccan-red hover:bg-moroccan-red-dark text-white"
+                    >
+                      Suivant
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Review Step */}
+              {onetimeStep === 'review' && (
+                <div className="max-w-2xl mx-auto">
+                  <h3 className="font-display text-2xl text-moroccan-brown mb-6 text-center">Récapitulatif de votre Box</h3>
+
+                  {['entree', 'plat', 'dessert'].map(cat => {
+                    const items = onetimeItemsForCategory(cat);
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={cat} className="mb-6">
+                        <h4 className="font-semibold text-moroccan-brown mb-2 capitalize flex items-center gap-2">
+                          {cat === 'entree' && <Salad className="w-4 h-4 text-moroccan-red" />}
+                          {cat === 'plat' && <UtensilsCrossed className="w-4 h-4 text-moroccan-red" />}
+                          {cat === 'dessert' && <CakeSlice className="w-4 h-4 text-moroccan-red" />}
+                          {cat === 'entree' ? 'Entrées' : cat === 'plat' ? 'Plats' : 'Desserts'}
+                        </h4>
+                        <div className="space-y-2">
+                          {items.map(([key, { item, qty, variant }]) => (
+                            <div key={key} className="bg-white rounded-xl p-3 flex items-center justify-between shadow-sm">
+                              <div className="flex items-center gap-3">
+                                <img src={item.image} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />
+                                <div>
+                                  <p className="font-medium text-moroccan-brown">{item.name}</p>
+                                  {variant && <p className="text-xs text-moroccan-brown/50">{variant.name}</p>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1">
+                                  <button onClick={() => updateOnetimeQty(key, -1)} className="w-6 h-6 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-red hover:text-white transition-colors">
+                                    <Minus className="w-3 h-3" />
+                                  </button>
+                                  <span className="w-6 text-center text-sm font-medium">{qty}</span>
+                                  <button onClick={() => updateOnetimeQty(key, 1)} className="w-6 h-6 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-red hover:text-white transition-colors">
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <span className="font-bold text-moroccan-red w-20 text-right">
+                                  {((variant ? item.price + variant.price : item.price) * qty).toFixed(2)} $
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {Object.keys(onetimeSelections).length === 0 && (
+                    <div className="text-center py-12 text-moroccan-brown/40">
+                      <Package className="w-16 h-16 mx-auto mb-3 opacity-30" />
+                      <p>Aucun plat sélectionné</p>
+                    </div>
+                  )}
+
+                  {/* Total */}
+                  {Object.keys(onetimeSelections).length > 0 && (
+                    <div className="mt-8 bg-white rounded-2xl p-6 shadow-moroccan">
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-moroccan-brown font-medium">Total de la Box</span>
+                        <span className="text-2xl font-bold text-moroccan-red">
+                          {Object.values(onetimeSelections).reduce((s, { item, qty, variant }) =>
+                            s + (variant ? item.price + variant.price : item.price) * qty, 0
+                          ).toFixed(2)} $
+                        </span>
+                      </div>
+                      <p className="text-xs text-moroccan-brown/40 text-right mb-4">Taxes et livraison calculées au panier</p>
+                      <Button
+                        onClick={addOnetimeToCart}
+                        className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6 text-lg font-semibold"
+                      >
+                        <ShoppingCart className="w-5 h-5 mr-2" />
+                        Ajouter au Panier
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between mt-6">
+                    <Button
+                      variant="outline"
+                      onClick={() => setOnetimeStep('dessert')}
+                      className="border-moroccan-brown/20 text-moroccan-brown"
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-1" /> Modifier
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══ SUBSCRIPTION: Builder Wizard ═══ */}
+          {purchaseMode === 'subscription' && (
+            <div>
+              {/* Back button */}
+              <button onClick={resetPurchaseFlow} className="flex items-center gap-1 text-moroccan-brown/60 hover:text-moroccan-red mb-6 transition-colors">
+                <ChevronLeft className="w-4 h-4" /> Retour au choix
+              </button>
+
+              {/* Step Progress */}
+              <div className="flex items-center justify-center gap-2 mb-12">
+                {subSteps.map((step, idx) => {
+                  const isActive = idx === currentSubIdx;
+                  const isDone = idx < currentSubIdx;
+                  return (
+                    <div key={step} className="flex items-center gap-2">
+                      {idx > 0 && <div className={`w-8 sm:w-16 h-0.5 ${isDone ? 'bg-moroccan-gold' : 'bg-moroccan-brown/20'} transition-colors`} />}
+                      <button
+                        onClick={() => { if (isDone) setSubStep(step); }}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                          isActive ? 'bg-moroccan-gold text-moroccan-brown shadow-lg' : isDone ? 'bg-moroccan-gold/20 text-moroccan-gold cursor-pointer' : 'bg-moroccan-brown/10 text-moroccan-brown/40'
+                        }`}
+                      >
+                        <span className="w-5 h-5 rounded-full bg-current/20 flex items-center justify-center text-xs font-bold">
+                          {isDone ? <Check className="w-3 h-3" /> : idx + 1}
+                        </span>
+                        <span className="hidden sm:inline">{subStepLabels[step]}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Step 1: Choose meal count */}
+              {subStep === 'meals' && (
+                <div className="max-w-3xl mx-auto">
+                  <h3 className="font-display text-2xl text-moroccan-brown mb-8 text-center">Combien de repas par semaine ?</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    {(subscriptionPlans.length > 0 ? subscriptionPlans : boxSubMealCounts.map((n, i) => ({
+                      id: `default-${n}`,
+                      plan_type: 'moi' as const,
+                      name: `${n} repas`,
+                      meals_per_week: n,
+                      price_per_meal: 12,
+                      monthly_price: n * 12 * 4,
+                      discount_percent: n >= 7 ? 15 : n >= 5 ? 10 : 0,
+                      is_popular: n === 5,
+                      stripe_price_id: null,
+                      active: true,
+                      sort_order: i,
+                      created_at: '',
+                    } as SubscriptionPlan))).map(plan => (
+                      <button
+                        key={plan.id}
+                        onClick={() => {
+                          setSubSelectedPlan(plan);
+                          setSubMealCount(plan.meals_per_week);
+                        }}
+                        className={`relative bg-white rounded-2xl p-6 shadow-moroccan text-center transition-all border-2 ${
+                          subSelectedPlan?.id === plan.id ? 'border-moroccan-gold shadow-lg scale-[1.02]' : 'border-transparent hover:border-moroccan-gold/50 card-hover'
+                        }`}
+                      >
+                        {plan.is_popular && (
+                          <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-moroccan-gold text-moroccan-brown">
+                            <Star className="w-3 h-3 mr-1" /> Populaire
                           </Badge>
+                        )}
+                        <div className="font-display text-5xl text-moroccan-brown mb-2">{plan.meals_per_week}</div>
+                        <p className="text-moroccan-brown/60 mb-4">repas / semaine</p>
+                        <div className="text-2xl font-bold text-moroccan-red mb-1">{plan.price_per_meal.toFixed(2)} $ <span className="text-sm font-normal text-moroccan-brown/50">/ repas</span></div>
+                        <div className="text-sm text-moroccan-brown/60">{plan.monthly_price.toFixed(2)} $ / mois</div>
+                        {plan.discount_percent > 0 && (
+                          <Badge className="mt-3 bg-green-100 text-green-700">Économisez {plan.discount_percent}%</Badge>
+                        )}
+                        {subSelectedPlan?.id === plan.id && (
+                          <div className="absolute top-3 right-3 w-6 h-6 bg-moroccan-gold rounded-full flex items-center justify-center">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex justify-between mt-10">
+                    <Button variant="outline" onClick={resetPurchaseFlow} className="border-moroccan-brown/20 text-moroccan-brown">
+                      <ChevronLeft className="w-4 h-4 mr-1" /> Retour
+                    </Button>
+                    <Button
+                      onClick={() => { if (subSelectedPlan) setSubStep('plats'); }}
+                      disabled={!subSelectedPlan}
+                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown"
+                    >
+                      Choisir mes plats <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Choose plats */}
+              {subStep === 'plats' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-display text-2xl text-moroccan-brown">
+                      Choisissez vos plats
+                    </h3>
+                    <Badge className={`${subPlatsCount >= subMealCount ? 'bg-green-100 text-green-700' : 'bg-moroccan-gold/10 text-moroccan-gold'}`}>
+                      {subPlatsCount} / {subMealCount} plats sélectionnés
+                    </Badge>
+                  </div>
+
+                  {subPlatsCount >= subMealCount && (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-6 flex items-center gap-2 text-green-700 text-sm">
+                      <Check className="w-4 h-4" /> Vous avez sélectionné tous vos plats !
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {menuItems.filter(item => item.category === 'plat').map((item, idx) => {
+                      const sel = subPlats[item.id];
+                      const qty = sel?.qty || 0;
+                      return (
+                        <div
+                          key={item.id}
+                          className={`bg-white rounded-2xl overflow-hidden shadow-moroccan group animate-fade-in border-2 transition-all ${
+                            qty > 0 ? 'border-moroccan-gold shadow-lg' : 'border-transparent card-hover'
+                          }`}
+                          style={{ animationDelay: `${idx * 0.05}s` }}
+                        >
+                          <div className="relative img-zoom h-48">
+                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            {qty > 0 && (
+                              <div className="absolute top-2 right-2 w-8 h-8 bg-moroccan-gold rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">{qty}</div>
+                            )}
+                            {item.tags?.map(tag => (
+                              <Badge key={tag} className="absolute top-2 left-2 bg-moroccan-green text-white text-xs">{tag}</Badge>
+                            ))}
+                          </div>
+                          <div className="p-4">
+                            <h3 className="font-display text-xl text-moroccan-brown mb-1">{item.name}</h3>
+                            <p className="text-sm text-moroccan-brown/60 line-clamp-2 mb-3">{item.description}</p>
+                            <div className="flex items-center justify-end">
+                              {qty > 0 ? (
+                                <div className="flex items-center gap-2">
+                                  <button onClick={() => updateSubPlatQty(item.id, -1)} className="w-8 h-8 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-gold hover:text-white transition-colors">
+                                    <Minus className="w-4 h-4" />
+                                  </button>
+                                  <span className="font-bold w-6 text-center">{qty}</span>
+                                  <button
+                                    onClick={() => { if (subPlatsCount < subMealCount) toggleSubPlat(item); }}
+                                    disabled={subPlatsCount >= subMealCount}
+                                    className="w-8 h-8 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-gold hover:text-white transition-colors disabled:opacity-30"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  onClick={() => { if (subPlatsCount < subMealCount) toggleSubPlat(item); }}
+                                  disabled={subPlatsCount >= subMealCount}
+                                  className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown rounded-full w-10 h-10 p-0 disabled:opacity-30"
+                                >
+                                  <Plus className="w-5 h-5" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex justify-between mt-10">
+                    <Button variant="outline" onClick={() => setSubStep('meals')} className="border-moroccan-brown/20 text-moroccan-brown">
+                      <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
+                    </Button>
+                    <Button
+                      onClick={() => setSubStep('extras')}
+                      disabled={subPlatsCount < 1}
+                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown"
+                    >
+                      Ajouter des extras <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Add extras (optional entrées + desserts) */}
+              {subStep === 'extras' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-display text-2xl text-moroccan-brown">
+                      Ajoutez des extras <span className="text-base font-normal text-moroccan-brown/50">(optionnel)</span>
+                    </h3>
+                    {subExtrasCount > 0 && (
+                      <Badge className="bg-moroccan-gold/10 text-moroccan-gold">
+                        {subExtrasCount} extra{subExtrasCount > 1 ? 's' : ''} ajouté{subExtrasCount > 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <Tabs defaultValue="entree" className="w-full">
+                    <TabsList className="flex justify-center mb-8 bg-white/50 p-2 rounded-full max-w-md mx-auto">
+                      <TabsTrigger value="entree" className="px-6 py-3 rounded-full data-[state=active]:bg-moroccan-gold data-[state=active]:text-white transition-all">
+                        Entrées
+                      </TabsTrigger>
+                      <TabsTrigger value="dessert" className="px-6 py-3 rounded-full data-[state=active]:bg-moroccan-gold data-[state=active]:text-white transition-all">
+                        Desserts
+                      </TabsTrigger>
+                    </TabsList>
+
+                    {['entree', 'dessert'].map(cat => (
+                      <TabsContent key={cat} value={cat} className="mt-0">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                          {menuItems.filter(item => item.category === cat).map((item, idx) => {
+                            const sel = subExtras[item.id];
+                            const qty = sel?.qty || 0;
+                            return (
+                              <div
+                                key={item.id}
+                                className={`bg-white rounded-2xl overflow-hidden shadow-moroccan group animate-fade-in border-2 transition-all ${
+                                  qty > 0 ? 'border-moroccan-gold shadow-lg' : 'border-transparent card-hover'
+                                }`}
+                                style={{ animationDelay: `${idx * 0.05}s` }}
+                              >
+                                <div className="relative img-zoom h-48">
+                                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                  {qty > 0 && (
+                                    <div className="absolute top-2 right-2 w-8 h-8 bg-moroccan-gold rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">{qty}</div>
+                                  )}
+                                </div>
+                                <div className="p-4">
+                                  <h3 className="font-display text-xl text-moroccan-brown mb-1">{item.name}</h3>
+                                  <p className="text-sm text-moroccan-brown/60 line-clamp-2 mb-3">{item.description}</p>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-lg font-bold text-moroccan-red">+{item.price.toFixed(2)} $</span>
+                                    {qty > 0 ? (
+                                      <div className="flex items-center gap-2">
+                                        <button onClick={() => updateSubExtraQty(item.id, -1)} className="w-8 h-8 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-gold hover:text-white transition-colors">
+                                          <Minus className="w-4 h-4" />
+                                        </button>
+                                        <span className="font-bold w-6 text-center">{qty}</span>
+                                        <button onClick={() => toggleSubExtra(item)} className="w-8 h-8 rounded-full bg-moroccan-cream flex items-center justify-center hover:bg-moroccan-gold hover:text-white transition-colors">
+                                          <Plus className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <Button size="sm" onClick={() => toggleSubExtra(item)} className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown rounded-full w-10 h-10 p-0">
+                                        <Plus className="w-5 h-5" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </TabsContent>
+                    ))}
+                  </Tabs>
+
+                  <div className="flex justify-between mt-10">
+                    <Button variant="outline" onClick={() => setSubStep('plats')} className="border-moroccan-brown/20 text-moroccan-brown">
+                      <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
+                    </Button>
+                    <Button onClick={() => setSubStep('review')} className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown">
+                      {subExtrasCount > 0 ? 'Voir le récapitulatif' : 'Passer cette étape'} <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 4: Review & Subscribe */}
+              {subStep === 'review' && subSelectedPlan && (
+                <div className="max-w-2xl mx-auto">
+                  <h3 className="font-display text-2xl text-moroccan-brown mb-6 text-center">Récapitulatif de votre Abonnement</h3>
+
+                  {/* Plan summary */}
+                  <div className="bg-gradient-to-r from-moroccan-gold/10 to-moroccan-gold/5 rounded-2xl p-6 mb-6 border border-moroccan-gold/20">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-display text-xl text-moroccan-brown">{subSelectedPlan.name || `${subSelectedPlan.meals_per_week} repas / semaine`}</span>
+                      <Badge className="bg-moroccan-gold text-white">{subSelectedPlan.meals_per_week} repas/sem</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm text-moroccan-brown/60">
+                      <span>{subSelectedPlan.price_per_meal.toFixed(2)} $ / repas</span>
+                      <span className="text-lg font-bold text-moroccan-red">{subSelectedPlan.monthly_price.toFixed(2)} $ / mois</span>
+                    </div>
+                  </div>
+
+                  {/* Selected plats */}
+                  <div className="mb-6">
+                    <h4 className="font-semibold text-moroccan-brown mb-2 flex items-center gap-2">
+                      <UtensilsCrossed className="w-4 h-4 text-moroccan-gold" /> Vos plats ({subPlatsCount})
+                    </h4>
+                    <div className="space-y-2">
+                      {Object.values(subPlats).map(({ item, qty }) => (
+                        <div key={item.id} className="bg-white rounded-xl p-3 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover" />
+                            <span className="font-medium text-moroccan-brown">{item.name}</span>
+                          </div>
+                          <span className="text-sm text-moroccan-brown/50">x{qty}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Selected extras */}
+                  {subExtrasCount > 0 && (
+                    <div className="mb-6">
+                      <h4 className="font-semibold text-moroccan-brown mb-2 flex items-center gap-2">
+                        <Salad className="w-4 h-4 text-moroccan-gold" /> Extras ({subExtrasCount})
+                      </h4>
+                      <div className="space-y-2">
+                        {Object.values(subExtras).map(({ item, qty, category }) => (
+                          <div key={item.id} className="bg-white rounded-xl p-3 flex items-center justify-between shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover" />
+                              <div>
+                                <span className="font-medium text-moroccan-brown">{item.name}</span>
+                                <Badge className="ml-2 text-xs bg-moroccan-brown/10 text-moroccan-brown/50">{category === 'entree' ? 'Entrée' : 'Dessert'}</Badge>
+                              </div>
+                            </div>
+                            <span className="text-sm text-moroccan-brown/50">x{qty}</span>
+                          </div>
                         ))}
                       </div>
-                      <div className="p-4">
-                        <h3 className="font-display text-xl text-moroccan-brown mb-1">{item.name}</h3>
-                        <p className="text-sm text-moroccan-brown/60 line-clamp-2 mb-3">{item.description}</p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xl font-bold text-moroccan-red">{item.price.toFixed(2)} $</span>
-                          <Button 
-                            size="sm"
-                            onClick={() => {
-                              if (item.variants && item.variants.length > 0) {
-                                setSelectedItem(item);
-                                setSelectedVariant(item.variants[0] || null);
-                              } else {
-                                addToCart(item);
-                              }
-                            }}
-                            className="bg-moroccan-red hover:bg-moroccan-red-dark text-white rounded-full w-10 h-10 p-0"
-                          >
-                            <Plus className="w-5 h-5" />
-                          </Button>
-                        </div>
-                        {item.variants && item.variants.length > 0 && (
-                          <p className="text-xs text-moroccan-brown/50 mt-2">
-                            {item.variants.length} variante{item.variants.length > 1 ? 's' : ''} — à partir de {Math.min(...item.variants.map(v => item.price + v.price)).toFixed(2)} $
-                          </p>
-                        )}
-                      </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Subscribe button */}
+                  <div className="bg-white rounded-2xl p-6 shadow-moroccan">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-moroccan-brown font-medium">Abonnement mensuel</span>
+                      <span className="text-2xl font-bold text-moroccan-red">{subSelectedPlan.monthly_price.toFixed(2)} $ / mois</span>
+                    </div>
+                    <p className="text-xs text-moroccan-brown/40 text-right mb-4">Livraison gratuite incluse</p>
+                    <Button
+                      onClick={() => setSubCheckoutOpen(true)}
+                      className="w-full bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown py-6 text-lg font-semibold"
+                    >
+                      <CalendarCheck className="w-5 h-5 mr-2" /> S'abonner maintenant
+                    </Button>
+                  </div>
+
+                  <div className="flex justify-between mt-6">
+                    <Button variant="outline" onClick={() => setSubStep('extras')} className="border-moroccan-brown/20 text-moroccan-brown">
+                      <ChevronLeft className="w-4 h-4 mr-1" /> Modifier
+                    </Button>
+                  </div>
                 </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
@@ -1059,6 +1796,55 @@ function App() {
           </div>
         </div>
       </footer>
+
+      {/* Subscription Checkout Dialog */}
+      <Dialog open={subCheckoutOpen} onOpenChange={setSubCheckoutOpen}>
+        <DialogContent className="bg-moroccan-cream max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-3xl text-moroccan-brown">S'abonner</DialogTitle>
+            <DialogDescription className="text-moroccan-brown/70">
+              {subSelectedPlan ? `${subSelectedPlan.meals_per_week} repas/semaine — ${subSelectedPlan.monthly_price.toFixed(2)} $/mois` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-2">
+            <div>
+              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Nom complet *</label>
+              <input type="text" placeholder="Ex: Fatima Benali" value={subCustomerInfo.name}
+                onChange={e => setSubCustomerInfo(p => ({ ...p, name: e.target.value }))}
+                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Email *</label>
+              <input type="email" placeholder="Ex: fatima@email.com" value={subCustomerInfo.email}
+                onChange={e => setSubCustomerInfo(p => ({ ...p, email: e.target.value }))}
+                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Téléphone *</label>
+              <input type="tel" placeholder="Ex: 438-808-4120" value={subCustomerInfo.phone}
+                onChange={e => setSubCustomerInfo(p => ({ ...p, phone: e.target.value }))}
+                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Adresse de livraison *</label>
+              <input type="text" placeholder="Ex: 123 Rue Principale, Montréal" value={subCustomerInfo.address}
+                onChange={e => setSubCustomerInfo(p => ({ ...p, address: e.target.value }))}
+                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+            </div>
+            <Button
+              onClick={handleSubscribe}
+              disabled={subSubmitting}
+              className="w-full bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown py-6 font-semibold text-base"
+            >
+              {subSubmitting ? 'Redirection...' : `S'abonner — ${subSelectedPlan?.monthly_price.toFixed(2)} $/mois`}
+            </Button>
+            <div className="flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 text-moroccan-brown/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+              <p className="text-xs text-moroccan-brown/40">Paiement sécurisé par Stripe</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Checkout Dialog */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>

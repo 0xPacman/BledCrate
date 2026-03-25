@@ -947,6 +947,15 @@ function SettingsPanel() {
     delivery_banner_enabled: true,
     subscription_enabled: true,
     subscription_free_delivery: true,
+    box_onetime_enabled: true,
+    box_subscription_enabled: true,
+    box_min_entrees: '0',
+    box_max_entrees: '10',
+    box_min_plats: '1',
+    box_max_plats: '10',
+    box_min_desserts: '0',
+    box_max_desserts: '10',
+    box_sub_meal_counts: '3,5,7',
   });
 
   const load = useCallback(async () => {
@@ -961,6 +970,15 @@ function SettingsPanel() {
         delivery_banner_enabled: s.delivery_banner_enabled === 'true',
         subscription_enabled: s.subscription_enabled === 'true',
         subscription_free_delivery: s.subscription_free_delivery === 'true',
+        box_onetime_enabled: s.box_onetime_enabled !== 'false',
+        box_subscription_enabled: s.box_subscription_enabled !== 'false',
+        box_min_entrees: s.box_min_entrees || '0',
+        box_max_entrees: s.box_max_entrees || '10',
+        box_min_plats: s.box_min_plats || '1',
+        box_max_plats: s.box_max_plats || '10',
+        box_min_desserts: s.box_min_desserts || '0',
+        box_max_desserts: s.box_max_desserts || '10',
+        box_sub_meal_counts: s.box_sub_meal_counts || '3,5,7',
       });
     } catch { toast.error('Impossible de charger les paramètres'); }
     finally { setLoading(false); }
@@ -980,6 +998,15 @@ function SettingsPanel() {
         delivery_banner_enabled: String(form.delivery_banner_enabled),
         subscription_enabled: String(form.subscription_enabled),
         subscription_free_delivery: String(form.subscription_free_delivery),
+        box_onetime_enabled: String(form.box_onetime_enabled),
+        box_subscription_enabled: String(form.box_subscription_enabled),
+        box_min_entrees: form.box_min_entrees,
+        box_max_entrees: form.box_max_entrees,
+        box_min_plats: form.box_min_plats,
+        box_max_plats: form.box_max_plats,
+        box_min_desserts: form.box_min_desserts,
+        box_max_desserts: form.box_max_desserts,
+        box_sub_meal_counts: form.box_sub_meal_counts,
       });
       toast.success('Paramètres sauvegardés');
     } catch (err: any) { toast.error(err.message); }
@@ -1117,6 +1144,81 @@ function SettingsPanel() {
           </label>
           <div className="bg-purple-50 rounded-lg p-3 text-sm text-purple-800">
             <strong>Note :</strong> Gérez les plans d'abonnement et les abonnés dans l'onglet <strong>Abonnements</strong>.
+          </div>
+        </div>
+      </div>
+
+      {/* Box Builder Settings */}
+      <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+            <Package className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900">Box Builder</h3>
+            <p className="text-xs text-gray-500">Configurez le parcours d'achat guidé sur la page d'accueil</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={form.box_onetime_enabled}
+                onChange={e => setForm(f => ({ ...f, box_onetime_enabled: e.target.checked }))}
+                className="w-5 h-5 accent-moroccan-red" />
+              <span className="text-sm font-medium text-gray-700">Activer l'achat unique</span>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={form.box_subscription_enabled}
+                onChange={e => setForm(f => ({ ...f, box_subscription_enabled: e.target.checked }))}
+                className="w-5 h-5 accent-moroccan-red" />
+              <span className="text-sm font-medium text-gray-700">Activer l'abonnement</span>
+            </label>
+          </div>
+
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium text-gray-700 mb-3">Limites par catégorie (achat unique)</p>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Entrées</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input label="Min" type="number" min="0" max="20" value={form.box_min_entrees}
+                    onChange={e => setForm(f => ({ ...f, box_min_entrees: e.target.value }))} />
+                  <Input label="Max" type="number" min="1" max="20" value={form.box_max_entrees}
+                    onChange={e => setForm(f => ({ ...f, box_max_entrees: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Plats</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input label="Min" type="number" min="0" max="20" value={form.box_min_plats}
+                    onChange={e => setForm(f => ({ ...f, box_min_plats: e.target.value }))} />
+                  <Input label="Max" type="number" min="1" max="20" value={form.box_max_plats}
+                    onChange={e => setForm(f => ({ ...f, box_max_plats: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Desserts</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input label="Min" type="number" min="0" max="20" value={form.box_min_desserts}
+                    onChange={e => setForm(f => ({ ...f, box_min_desserts: e.target.value }))} />
+                  <Input label="Max" type="number" min="1" max="20" value={form.box_max_desserts}
+                    onChange={e => setForm(f => ({ ...f, box_max_desserts: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <Input label="Options de repas/semaine (abonnement, séparées par virgule)"
+              type="text" placeholder="3,5,7" value={form.box_sub_meal_counts}
+              onChange={e => setForm(f => ({ ...f, box_sub_meal_counts: e.target.value }))} />
+          </div>
+
+          <div className="bg-red-50 rounded-lg p-3 text-sm text-red-800">
+            <strong>Aperçu :</strong>
+            {form.box_onetime_enabled && ` Achat unique activé (Entrées: ${form.box_min_entrees}-${form.box_max_entrees}, Plats: ${form.box_min_plats}-${form.box_max_plats}, Desserts: ${form.box_min_desserts}-${form.box_max_desserts}).`}
+            {form.box_subscription_enabled && ` Abonnement activé (${form.box_sub_meal_counts} repas/sem).`}
+            {!form.box_onetime_enabled && !form.box_subscription_enabled && ' Aucun mode activé — le sélecteur ne sera pas affiché.'}
           </div>
         </div>
       </div>

@@ -62,6 +62,15 @@ export interface SiteSettings {
   delivery_banner_enabled: string;
   subscription_enabled: string;
   subscription_free_delivery: string;
+  box_onetime_enabled: string;
+  box_subscription_enabled: string;
+  box_min_entrees: string;
+  box_max_entrees: string;
+  box_min_plats: string;
+  box_max_plats: string;
+  box_min_desserts: string;
+  box_max_desserts: string;
+  box_sub_meal_counts: string;
 }
 
 export interface SubscriptionPlan {

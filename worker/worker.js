@@ -339,7 +339,7 @@ async function handleSubscribe(request, env) {
     mode: 'subscription',
     line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
     success_url: `${env.FRONTEND_URL}/abonnement/merci?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.FRONTEND_URL}/abonnement`,
+    cancel_url: `${env.FRONTEND_URL}/#menu`,
     customer_email: customer.email,
     metadata: {
       plan_id: plan.id,
@@ -410,7 +410,7 @@ async function handleUpdateSettings(request, env) {
   const user = await requireAuth(request, env);
   if (!user) return err('Non autorisé', 401);
   const data = await request.json();
-  const allowed = ['bundle_enabled', 'bundle_min_items', 'bundle_discount_percent', 'delivery_fee', 'free_delivery_threshold', 'delivery_banner_enabled', 'subscription_enabled', 'subscription_free_delivery'];
+  const allowed = ['bundle_enabled', 'bundle_min_items', 'bundle_discount_percent', 'delivery_fee', 'free_delivery_threshold', 'delivery_banner_enabled', 'subscription_enabled', 'subscription_free_delivery', 'box_onetime_enabled', 'box_subscription_enabled', 'box_min_entrees', 'box_max_entrees', 'box_min_plats', 'box_max_plats', 'box_min_desserts', 'box_max_desserts', 'box_sub_meal_counts'];
   for (const [key, value] of Object.entries(data)) {
     if (!allowed.includes(key)) continue;
     await env.DB.prepare(
@@ -460,7 +460,7 @@ async function handleCheckout(request, env) {
   const baseFee = parseFloat(settings.delivery_fee || '5');
   const deliveryFee = afterDiscounts >= freeThreshold ? 0 : baseFee;
 
-  // Build Stripe line items
+  // Build Stripe line items (pre-tax prices from client)
   const line_items = items.map(item => ({
     price_data: {
       currency: 'cad',
@@ -482,8 +482,20 @@ async function handleCheckout(request, env) {
     });
   }
 
-  // Add discount as a coupon if applicable
-  const totalDiscountPercent = bundleDiscountPercent + discountPercent - (bundleDiscountPercent * discountPercent / 100);
+  // Calculate tax (15% TPS+TVQ) on the post-discount, post-delivery total
+  const taxableAmount = afterDiscounts + deliveryFee;
+  const taxAmount = Math.round(taxableAmount * 0.15 * 100) / 100;
+  if (taxAmount > 0) {
+    line_items.push({
+      price_data: {
+        currency: 'cad',
+        product_data: { name: 'Taxes (TPS + TVQ 15%)' },
+        unit_amount: Math.round(taxAmount * 100),
+      },
+      quantity: 1,
+    });
+  }
+
   const sessionParams = {
     mode: 'payment',
     line_items,
@@ -501,6 +513,7 @@ async function handleCheckout(request, env) {
       bundle_discount_percent: String(bundleDiscountPercent),
       subtotal: String(subtotal),
       delivery_fee: String(deliveryFee),
+      tax_amount: String(taxAmount),
     },
   };
 
