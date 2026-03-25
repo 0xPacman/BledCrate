@@ -2,15 +2,16 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Package, ClipboardList, Tag, LogOut, Plus, Pencil, Trash2,
   Eye, Search, Loader2, ImageIcon, DollarSign, Users, Settings, Truck, PackageOpen, Save,
+  CalendarCheck, XCircle, Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast, Toaster } from 'sonner';
 import * as api from '@/lib/api';
-import type { Product, ProductVariant, Order, PromoCode } from '@/lib/api';
+import type { Product, ProductVariant, Order, PromoCode, SubscriptionPlan, Subscription } from '@/lib/api';
 
-type Tab = 'products' | 'orders' | 'promos' | 'settings';
+type Tab = 'products' | 'orders' | 'promos' | 'subscriptions' | 'settings';
 type ProductForm = {
   name: string; description: string; price: string; image: string;
   category: 'entree' | 'plat' | 'dessert'; tags: string; variants: ProductVariant[]; active: boolean;
@@ -614,6 +615,325 @@ function PromoCodesPanel() {
   );
 }
 
+// ── Subscriptions Panel ──
+type PlanForm = {
+  plan_type: 'moi' | 'bundle';
+  name: string;
+  meals_per_week: string;
+  price_per_meal: string;
+  monthly_price: string;
+  discount_percent: string;
+  is_popular: boolean;
+  active: boolean;
+  sort_order: string;
+};
+
+const emptyPlanForm: PlanForm = {
+  plan_type: 'moi', name: '', meals_per_week: '3', price_per_meal: '13',
+  monthly_price: '', discount_percent: '0', is_popular: false, active: true, sort_order: '0',
+};
+
+function SubscriptionsPanel() {
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<PlanForm>(emptyPlanForm);
+  const [saving, setSaving] = useState(false);
+  const [subTab, setSubTab] = useState<'plans' | 'active'>('plans');
+
+  const loadPlans = useCallback(async () => {
+    try { setPlans(await api.fetchAdminSubscriptionPlans()); }
+    catch { toast.error('Impossible de charger les plans'); }
+  }, []);
+
+  const loadSubs = useCallback(async () => {
+    try { setSubscriptions(await api.fetchSubscriptions()); }
+    catch { /* may not exist yet */ }
+  }, []);
+
+  const load = useCallback(async () => {
+    await Promise.all([loadPlans(), loadSubs()]);
+    setLoading(false);
+  }, [loadPlans, loadSubs]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Auto-calculate monthly price
+  useEffect(() => {
+    const meals = parseInt(form.meals_per_week) || 0;
+    const price = parseFloat(form.price_per_meal) || 0;
+    setForm(f => ({ ...f, monthly_price: (meals * price * 4).toFixed(2) }));
+  }, [form.meals_per_week, form.price_per_meal]);
+
+  const openAdd = () => { setEditingId(null); setForm(emptyPlanForm); setDialogOpen(true); };
+  const openEdit = (p: SubscriptionPlan) => {
+    setEditingId(p.id);
+    setForm({
+      plan_type: p.plan_type, name: p.name, meals_per_week: String(p.meals_per_week),
+      price_per_meal: String(p.price_per_meal), monthly_price: String(p.monthly_price),
+      discount_percent: String(p.discount_percent), is_popular: p.is_popular,
+      active: p.active, sort_order: String(p.sort_order),
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const data = {
+      plan_type: form.plan_type,
+      name: form.name || `${form.plan_type === 'moi' ? 'Solo' : 'Bundle'} ${form.meals_per_week} repas`,
+      meals_per_week: parseInt(form.meals_per_week) || 3,
+      price_per_meal: parseFloat(form.price_per_meal) || 12,
+      monthly_price: parseFloat(form.monthly_price) || 0,
+      discount_percent: parseFloat(form.discount_percent) || 0,
+      is_popular: form.is_popular,
+      active: form.active,
+      sort_order: parseInt(form.sort_order) || 0,
+    };
+    try {
+      if (editingId) {
+        await api.updateSubscriptionPlan(editingId, data);
+        toast.success('Plan mis à jour');
+      } else {
+        await api.createSubscriptionPlan(data);
+        toast.success('Plan créé (+ prix Stripe)');
+      }
+      setDialogOpen(false);
+      loadPlans();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    if (!confirm('Supprimer ce plan ?')) return;
+    try { await api.deleteSubscriptionPlan(id); toast.success('Plan supprimé'); loadPlans(); }
+    catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleCancelSub = async (id: string) => {
+    if (!confirm('Annuler cet abonnement ?')) return;
+    try { await api.cancelSubscription(id); toast.success('Abonnement annulé'); loadSubs(); }
+    catch (err: any) { toast.error(err.message); }
+  };
+
+  const set = (key: keyof PlanForm, val: any) => setForm(f => ({ ...f, [key]: val }));
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-moroccan-red" /></div>;
+
+  const statusColors: Record<string, string> = {
+    active: 'bg-green-100 text-green-700',
+    cancelling: 'bg-yellow-100 text-yellow-700',
+    past_due: 'bg-red-100 text-red-700',
+    cancelled: 'bg-gray-100 text-gray-500',
+  };
+
+  const statusLabels: Record<string, string> = {
+    active: 'Actif', cancelling: 'En annulation', past_due: 'Impayé', cancelled: 'Annulé',
+  };
+
+  const totalMRR = subscriptions.filter(s => s.status === 'active').reduce((sum, s) => sum + (s.monthly_price || 0), 0);
+
+  return (
+    <div>
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center"><CalendarCheck className="w-5 h-5 text-purple-600" /></div>
+            <div><p className="text-sm text-gray-500">Plans actifs</p><p className="text-2xl font-bold">{plans.filter(p => p.active).length}</p></div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center"><Users className="w-5 h-5 text-green-600" /></div>
+            <div><p className="text-sm text-gray-500">Abonnés actifs</p><p className="text-2xl font-bold">{subscriptions.filter(s => s.status === 'active').length}</p></div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><DollarSign className="w-5 h-5 text-blue-600" /></div>
+            <div><p className="text-sm text-gray-500">MRR</p><p className="text-2xl font-bold">{totalMRR.toFixed(2)} $</p></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sub tabs */}
+      <div className="flex items-center gap-2 mb-6">
+        <button onClick={() => setSubTab('plans')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${subTab === 'plans' ? 'bg-moroccan-red text-white' : 'bg-white text-gray-600 border hover:bg-gray-50'}`}>
+          Plans ({plans.length})
+        </button>
+        <button onClick={() => setSubTab('active')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${subTab === 'active' ? 'bg-moroccan-red text-white' : 'bg-white text-gray-600 border hover:bg-gray-50'}`}>
+          Abonnés ({subscriptions.length})
+        </button>
+      </div>
+
+      {subTab === 'plans' && (
+        <>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-gray-900">Plans d'abonnement</h2>
+            <Button onClick={openAdd} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white">
+              <Plus className="w-4 h-4 mr-1" /> Nouveau Plan
+            </Button>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Repas/sem</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prix/plat</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Mensuel</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {plans.map(p => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-gray-900">{p.name}</p>
+                        {p.is_popular && <Star className="w-3.5 h-3.5 text-moroccan-gold fill-moroccan-gold" />}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="capitalize">{p.plan_type === 'moi' ? 'Solo' : 'Bundle'}</Badge>
+                    </td>
+                    <td className="px-4 py-3 font-medium">{p.meals_per_week}</td>
+                    <td className="px-4 py-3 font-semibold text-moroccan-red">{p.price_per_meal.toFixed(2)} $</td>
+                    <td className="px-4 py-3 hidden md:table-cell">{p.monthly_price.toFixed(2)} $</td>
+                    <td className="px-4 py-3">
+                      <Badge className={p.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}>
+                        {p.active ? 'Actif' : 'Inactif'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => handleDeletePlan(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {plans.length === 0 && (
+                  <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">Aucun plan créé. Ajoutez votre premier plan d'abonnement.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Plan Dialog */}
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-xl">{editingId ? 'Modifier le Plan' : 'Nouveau Plan d\'abonnement'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <Select label="Type *" value={form.plan_type} onChange={e => set('plan_type', e.target.value)} options={[
+                    { value: 'moi', label: 'Moi (Solo)' }, { value: 'bundle', label: 'Bundle (Famille)' },
+                  ]} />
+                  <Input label="Nom" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ex: Solo 5 repas" />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Input label="Repas/semaine *" type="number" min="2" max="10" value={form.meals_per_week} onChange={e => set('meals_per_week', e.target.value)} />
+                  <Input label="Prix/plat ($) *" type="number" step="0.01" min="1" value={form.price_per_meal} onChange={e => set('price_per_meal', e.target.value)} />
+                  <Input label="Réduction (%)" type="number" min="0" max="50" value={form.discount_percent} onChange={e => set('discount_percent', e.target.value)} />
+                </div>
+                <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-800">
+                  <strong>Total mensuel :</strong> {form.meals_per_week} repas x {form.price_per_meal}$/plat x 4 semaines = <strong>{form.monthly_price}$/mois</strong>
+                </div>
+                <Input label="Ordre d'affichage" type="number" min="0" value={form.sort_order} onChange={e => set('sort_order', e.target.value)} />
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.is_popular} onChange={e => set('is_popular', e.target.checked)} className="w-4 h-4 accent-moroccan-red" />
+                    <span className="text-sm font-medium text-gray-700">Populaire (badge)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.active} onChange={e => set('active', e.target.checked)} className="w-4 h-4 accent-moroccan-red" />
+                    <span className="text-sm font-medium text-gray-700">Actif</span>
+                  </label>
+                </div>
+                {!editingId && (
+                  <div className="bg-orange-50 rounded-lg p-3 text-sm text-orange-800">
+                    <strong>Note :</strong> Un produit et prix Stripe seront automatiquement créés pour ce plan.
+                  </div>
+                )}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setDialogOpen(false)}>Annuler</Button>
+                  <Button onClick={handleSave} disabled={saving || !form.meals_per_week || !form.price_per_meal} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white">
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : editingId ? 'Mettre à jour' : 'Créer le plan'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+
+      {subTab === 'active' && (
+        <>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Abonnés</h2>
+          <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Repas/sem</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Mensuel</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Inscrit le</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {subscriptions.map(s => (
+                  <tr key={s.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{s.customer_name}</p>
+                      <p className="text-xs text-gray-500">{s.customer_email}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="capitalize">{s.plan_name || s.plan_type || '—'}</Badge>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">{s.meals_per_week || '—'}</td>
+                    <td className="px-4 py-3 hidden md:table-cell font-semibold text-moroccan-red">{s.monthly_price ? `${s.monthly_price.toFixed(2)} $` : '—'}</td>
+                    <td className="px-4 py-3">
+                      <Badge className={statusColors[s.status] || 'bg-gray-100 text-gray-600'}>
+                        {statusLabels[s.status] || s.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell text-gray-500">
+                      {new Date(s.created_at).toLocaleDateString('fr-CA')}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {s.status === 'active' && (
+                        <button onClick={() => handleCancelSub(s.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600" title="Annuler">
+                          <XCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {subscriptions.length === 0 && (
+                  <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">Aucun abonné pour le moment</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Settings Panel ──
 function SettingsPanel() {
   const [loading, setLoading] = useState(true);
@@ -625,6 +945,8 @@ function SettingsPanel() {
     delivery_fee: '5',
     free_delivery_threshold: '75',
     delivery_banner_enabled: true,
+    subscription_enabled: true,
+    subscription_free_delivery: true,
   });
 
   const load = useCallback(async () => {
@@ -637,6 +959,8 @@ function SettingsPanel() {
         delivery_fee: s.delivery_fee || '5',
         free_delivery_threshold: s.free_delivery_threshold || '75',
         delivery_banner_enabled: s.delivery_banner_enabled === 'true',
+        subscription_enabled: s.subscription_enabled === 'true',
+        subscription_free_delivery: s.subscription_free_delivery === 'true',
       });
     } catch { toast.error('Impossible de charger les paramètres'); }
     finally { setLoading(false); }
@@ -654,6 +978,8 @@ function SettingsPanel() {
         delivery_fee: form.delivery_fee,
         free_delivery_threshold: form.free_delivery_threshold,
         delivery_banner_enabled: String(form.delivery_banner_enabled),
+        subscription_enabled: String(form.subscription_enabled),
+        subscription_free_delivery: String(form.subscription_free_delivery),
       });
       toast.success('Paramètres sauvegardés');
     } catch (err: any) { toast.error(err.message); }
@@ -759,6 +1085,42 @@ function SettingsPanel() {
         </div>
       </div>
 
+      {/* Subscription Settings */}
+      <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+            <CalendarCheck className="w-5 h-5 text-purple-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900">Abonnements</h3>
+            <p className="text-xs text-gray-500">Plans mensuels de repas pour les clients</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.subscription_enabled}
+              onChange={e => setForm(f => ({ ...f, subscription_enabled: e.target.checked }))}
+              className="w-5 h-5 accent-moroccan-red"
+            />
+            <span className="text-sm font-medium text-gray-700">Activer les abonnements (page /abonnement)</span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.subscription_free_delivery}
+              onChange={e => setForm(f => ({ ...f, subscription_free_delivery: e.target.checked }))}
+              className="w-5 h-5 accent-moroccan-red"
+            />
+            <span className="text-sm font-medium text-gray-700">Livraison gratuite pour les abonnés</span>
+          </label>
+          <div className="bg-purple-50 rounded-lg p-3 text-sm text-purple-800">
+            <strong>Note :</strong> Gérez les plans d'abonnement et les abonnés dans l'onglet <strong>Abonnements</strong>.
+          </div>
+        </div>
+      </div>
+
       <Button onClick={handleSave} disabled={saving} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-5">
         {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
         Sauvegarder les paramètres
@@ -783,6 +1145,7 @@ export default function AdminPage() {
     { key: 'orders', label: 'Commandes', icon: ClipboardList },
     { key: 'products', label: 'Produits', icon: Package },
     { key: 'promos', label: 'Promos', icon: Tag },
+    { key: 'subscriptions', label: 'Abonnements', icon: CalendarCheck },
     { key: 'settings', label: 'Paramètres', icon: Settings },
   ];
 
@@ -820,6 +1183,7 @@ export default function AdminPage() {
           {activeTab === 'products' && <ProductsPanel />}
           {activeTab === 'orders' && <OrdersPanel />}
           {activeTab === 'promos' && <PromoCodesPanel />}
+          {activeTab === 'subscriptions' && <SubscriptionsPanel />}
           {activeTab === 'settings' && <SettingsPanel />}
         </main>
       </div>

@@ -60,6 +60,43 @@ export interface SiteSettings {
   delivery_fee: string;
   free_delivery_threshold: string;
   delivery_banner_enabled: string;
+  subscription_enabled: string;
+  subscription_free_delivery: string;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  plan_type: 'moi' | 'bundle';
+  name: string;
+  meals_per_week: number;
+  price_per_meal: number;
+  monthly_price: number;
+  discount_percent: number;
+  is_popular: boolean;
+  stripe_price_id: string | null;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface Subscription {
+  id: string;
+  stripe_subscription_id: string;
+  stripe_customer_id: string;
+  plan_id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  customer_address: string;
+  status: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  created_at: string;
+  // Joined from plan
+  plan_name?: string;
+  plan_type?: string;
+  meals_per_week?: number;
+  monthly_price?: number;
 }
 
 // Auth helpers
@@ -151,3 +188,24 @@ export const validatePromo = (code: string) =>
     method: 'POST',
     body: JSON.stringify({ code }),
   });
+
+// Subscription Plans
+export const fetchSubscriptionPlans = () => api<SubscriptionPlan[]>('/api/subscription-plans');
+export const fetchAdminSubscriptionPlans = () => api<SubscriptionPlan[]>('/api/subscription-plans/admin');
+export const createSubscriptionPlan = (p: Partial<SubscriptionPlan>) =>
+  api<SubscriptionPlan>('/api/subscription-plans', { method: 'POST', body: JSON.stringify(p) });
+export const updateSubscriptionPlan = (id: string, p: Partial<SubscriptionPlan>) =>
+  api<SubscriptionPlan>(`/api/subscription-plans/${id}`, { method: 'PUT', body: JSON.stringify(p) });
+export const deleteSubscriptionPlan = (id: string) =>
+  api<void>(`/api/subscription-plans/${id}`, { method: 'DELETE' });
+
+// Subscriptions
+export const fetchSubscriptions = () => api<Subscription[]>('/api/subscriptions');
+export const cancelSubscription = (id: string) =>
+  api<{ id: string; status: string }>(`/api/subscriptions/${id}/cancel`, { method: 'POST' });
+
+// Subscribe (public)
+export const createSubscription = (data: {
+  plan_id: string;
+  customer: { name: string; email: string; phone: string; address: string };
+}) => api<{ url: string }>('/api/subscribe', { method: 'POST', body: JSON.stringify(data) });

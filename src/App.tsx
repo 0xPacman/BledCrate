@@ -286,6 +286,18 @@ function App() {
                   <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-moroccan-red transition-all group-hover:w-full" />
                 </button>
               ))}
+              {siteSettings?.subscription_enabled === 'true' && (
+                <Link
+                  to="/abonnement"
+                  className={`font-medium text-sm hover:text-moroccan-red transition-colors relative group flex items-center gap-1 ${
+                    isScrolled ? 'text-moroccan-brown' : 'text-white'
+                  }`}
+                >
+                  <Package className="w-4 h-4" />
+                  Abonnement
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-moroccan-red transition-all group-hover:w-full" />
+                </Link>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -445,6 +457,23 @@ function App() {
                     <ChevronRight className="w-4 h-4 opacity-50" />
                   </button>
                 ))}
+                {siteSettings?.subscription_enabled === 'true' && (
+                  <Link
+                    to="/abonnement"
+                    className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                      isScrolled
+                        ? 'text-moroccan-red bg-moroccan-red/10 hover:bg-moroccan-red/20'
+                        : 'text-moroccan-gold hover:bg-white/10'
+                    }`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Package className="w-4 h-4" />
+                      Abonnement
+                    </span>
+                    <ChevronRight className="w-4 h-4 opacity-50" />
+                  </Link>
+                )}
                 <Link
                   to="/politique"
                   className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
@@ -855,17 +884,56 @@ function App() {
         </div>
       </section>
 
+      {/* Subscription CTA Section */}
+      {siteSettings?.subscription_enabled === 'true' && (
+        <section className="py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-moroccan-brown to-moroccan-brown-light text-white relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute inset-0" style={{
+              backgroundImage: 'url(/zellige-pattern.jpg)',
+              backgroundSize: '150px 150px',
+              backgroundRepeat: 'repeat'
+            }} />
+          </div>
+          <div className="max-w-5xl mx-auto relative z-10 flex flex-col md:flex-row items-center gap-8">
+            <div className="flex-1 text-center md:text-left">
+              <Badge className="bg-moroccan-gold text-moroccan-brown mb-3">
+                <Package className="w-3 h-3 mr-1" />
+                Nouveau
+              </Badge>
+              <h2 className="font-display text-4xl sm:text-5xl mb-3">
+                Abonnez-vous &<br />
+                <span className="text-moroccan-gold">Économisez Plus</span>
+              </h2>
+              <p className="text-white/80 text-base mb-6 max-w-lg">
+                Recevez vos repas marocains préférés chaque semaine. Livraison gratuite, prix réduits, et des saveurs authentiques à votre porte.
+              </p>
+              <Link to="/abonnement">
+                <Button className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-6 text-lg font-semibold rounded-full">
+                  Voir les plans
+                  <ChevronRight className="w-5 h-5 ml-1" />
+                </Button>
+              </Link>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 text-center shrink-0">
+              <p className="text-moroccan-gold text-sm font-medium mb-1">À partir de</p>
+              <p className="font-display text-5xl text-white">12<span className="text-2xl">$/plat</span></p>
+              <p className="text-white/60 text-sm mt-1">Livraison gratuite incluse</p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* CTA Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         <div className="absolute inset-0">
-          <img 
-            src="/mint-tea.jpg" 
-            alt="Thé à la Menthe" 
+          <img
+            src="/mint-tea.jpg"
+            alt="Thé à la Menthe"
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-moroccan-red/80" />
         </div>
-        
+
         {/* Zellige Corners */}
         <div className="absolute top-0 left-0 w-24 h-24 opacity-40">
           <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-br-full" />
@@ -881,13 +949,26 @@ function App() {
           <p className="text-white/90 text-lg mb-8 max-w-2xl mx-auto">
             Commandez dès maintenant et profitez automatiquement d'une réduction de <span className="font-bold text-moroccan-gold">10%</span> sur votre première commande.
           </p>
-          <Button 
-            onClick={() => scrollToSection('menu')}
-            className="bg-white text-moroccan-red hover:bg-moroccan-cream px-10 py-6 text-lg font-semibold rounded-full btn-liquid"
-          >
-            Commander Maintenant
-            <ShoppingCart className="w-5 h-5 ml-2" />
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button
+              onClick={() => scrollToSection('menu')}
+              className="bg-white text-moroccan-red hover:bg-moroccan-cream px-10 py-6 text-lg font-semibold rounded-full btn-liquid"
+            >
+              Commander Maintenant
+              <ShoppingCart className="w-5 h-5 ml-2" />
+            </Button>
+            {siteSettings?.subscription_enabled === 'true' && (
+              <Link to="/abonnement">
+                <Button
+                  variant="outline"
+                  className="border-2 border-white text-white hover:bg-white hover:text-moroccan-red px-10 py-6 text-lg font-semibold rounded-full bg-transparent"
+                >
+                  S'abonner
+                  <Package className="w-5 h-5 ml-2" />
+                </Button>
+              </Link>
+            )}
+          </div>
         </div>
       </section>
 
@@ -922,6 +1003,7 @@ function App() {
               <h4 className="font-display text-xl mb-4">Liens Rapides</h4>
               <ul className="space-y-2 text-white/70">
                 <li><button onClick={() => scrollToSection('menu')} className="hover:text-moroccan-gold transition-colors">Notre Menu</button></li>
+                <li><Link to="/abonnement" className="hover:text-moroccan-gold transition-colors">Abonnement</Link></li>
                 <li><button onClick={() => scrollToSection('how-it-works')} className="hover:text-moroccan-gold transition-colors">Comment Ça Marche</button></li>
                 <li><button onClick={() => scrollToSection('testimonials')} className="hover:text-moroccan-gold transition-colors">Avis Clients</button></li>
                 <li><Link to="/politique" className="hover:text-moroccan-gold transition-colors">Livraison & Retours</Link></li>

@@ -47,6 +47,40 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Subscription plans (admin-configurable meal plan tiers)
+CREATE TABLE IF NOT EXISTS subscription_plans (
+  id TEXT PRIMARY KEY,
+  plan_type TEXT NOT NULL DEFAULT 'moi',       -- 'moi' (solo) or 'bundle' (family)
+  name TEXT NOT NULL,                           -- Display name e.g. "Solo 5 repas"
+  meals_per_week INTEGER NOT NULL,              -- 2-10
+  price_per_meal REAL NOT NULL,                 -- in CAD
+  monthly_price REAL NOT NULL,                  -- price_per_meal * meals_per_week * 4
+  discount_percent REAL DEFAULT 0,              -- shown badge "Save X%"
+  is_popular INTEGER DEFAULT 0,                 -- highlight card
+  stripe_price_id TEXT,                         -- Stripe recurring Price ID
+  active INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Active customer subscriptions
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  stripe_subscription_id TEXT UNIQUE NOT NULL,
+  stripe_customer_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_email TEXT NOT NULL,
+  customer_phone TEXT DEFAULT '',
+  customer_address TEXT DEFAULT '',
+  status TEXT DEFAULT 'active',                 -- active, paused, cancelled, past_due
+  current_period_start TEXT,
+  current_period_end TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Default settings
 INSERT OR IGNORE INTO settings (key, value) VALUES ('bundle_enabled', 'true');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('bundle_min_items', '3');
@@ -54,3 +88,5 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('bundle_discount_percent', '
 INSERT OR IGNORE INTO settings (key, value) VALUES ('delivery_fee', '5');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('free_delivery_threshold', '75');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('delivery_banner_enabled', 'true');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('subscription_enabled', 'true');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('subscription_free_delivery', 'true');

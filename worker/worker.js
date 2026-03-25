@@ -220,6 +220,175 @@ async function handleValidatePromo(request, env) {
   return json({ valid: true, discount_percent: promo.discount_percent });
 }
 
+// ── Subscription Plans ──
+async function handleGetSubscriptionPlans(env) {
+  const { results } = await env.DB.prepare('SELECT * FROM subscription_plans WHERE active = 1 ORDER BY plan_type, sort_order, meals_per_week').all();
+  return json(results.map(p => ({ ...p, active: !!p.active, is_popular: !!p.is_popular })));
+}
+
+async function handleGetAllSubscriptionPlans(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const { results } = await env.DB.prepare('SELECT * FROM subscription_plans ORDER BY plan_type, sort_order, meals_per_week').all();
+  return json(results.map(p => ({ ...p, active: !!p.active, is_popular: !!p.is_popular })));
+}
+
+async function handleCreateSubscriptionPlan(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const data = await request.json();
+  const id = uuid();
+  const mealsPerWeek = parseInt(data.meals_per_week) || 3;
+  const pricePerMeal = parseFloat(data.price_per_meal) || 12;
+  const monthlyPrice = parseFloat(data.monthly_price) || (pricePerMeal * mealsPerWeek * 4);
+
+  // Create Stripe Product + Price for recurring billing
+  let stripePriceId = null;
+  try {
+    const product = await stripePost('/products', {
+      name: `BledCrate - ${data.name || data.plan_type} (${mealsPerWeek} repas/sem)`,
+      metadata: { plan_id: id },
+    }, env.STRIPE_SECRET_KEY);
+
+    const price = await stripePost('/prices', {
+      product: product.id,
+      unit_amount: Math.round(monthlyPrice * 100),
+      currency: 'cad',
+      recurring: { interval: 'month' },
+    }, env.STRIPE_SECRET_KEY);
+
+    stripePriceId = price.id;
+  } catch (e) {
+    console.error('Stripe price creation failed:', e);
+  }
+
+  await env.DB.prepare(
+    'INSERT INTO subscription_plans (id, plan_type, name, meals_per_week, price_per_meal, monthly_price, discount_percent, is_popular, stripe_price_id, active, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(
+    id, data.plan_type || 'moi', data.name || '', mealsPerWeek, pricePerMeal, monthlyPrice,
+    parseFloat(data.discount_percent) || 0, data.is_popular ? 1 : 0,
+    stripePriceId, data.active !== false ? 1 : 0, parseInt(data.sort_order) || 0
+  ).run();
+
+  return json({ id, stripe_price_id: stripePriceId, ...data });
+}
+
+async function handleUpdateSubscriptionPlan(request, env, id) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const data = await request.json();
+  const sets = [];
+  const vals = [];
+
+  if (data.plan_type !== undefined) { sets.push('plan_type = ?'); vals.push(data.plan_type); }
+  if (data.name !== undefined) { sets.push('name = ?'); vals.push(data.name); }
+  if (data.meals_per_week !== undefined) { sets.push('meals_per_week = ?'); vals.push(parseInt(data.meals_per_week)); }
+  if (data.price_per_meal !== undefined) { sets.push('price_per_meal = ?'); vals.push(parseFloat(data.price_per_meal)); }
+  if (data.monthly_price !== undefined) { sets.push('monthly_price = ?'); vals.push(parseFloat(data.monthly_price)); }
+  if (data.discount_percent !== undefined) { sets.push('discount_percent = ?'); vals.push(parseFloat(data.discount_percent)); }
+  if (data.is_popular !== undefined) { sets.push('is_popular = ?'); vals.push(data.is_popular ? 1 : 0); }
+  if (data.active !== undefined) { sets.push('active = ?'); vals.push(data.active ? 1 : 0); }
+  if (data.sort_order !== undefined) { sets.push('sort_order = ?'); vals.push(parseInt(data.sort_order)); }
+
+  // If price changed, create new Stripe Price (can't update existing)
+  if (data.monthly_price !== undefined) {
+    try {
+      const plan = await env.DB.prepare('SELECT * FROM subscription_plans WHERE id = ?').bind(id).first();
+      if (plan) {
+        const product = await stripePost('/products', {
+          name: `BledCrate - ${data.name || plan.name} (${data.meals_per_week || plan.meals_per_week} repas/sem)`,
+          metadata: { plan_id: id },
+        }, env.STRIPE_SECRET_KEY);
+        const price = await stripePost('/prices', {
+          product: product.id,
+          unit_amount: Math.round(parseFloat(data.monthly_price) * 100),
+          currency: 'cad',
+          recurring: { interval: 'month' },
+        }, env.STRIPE_SECRET_KEY);
+        sets.push('stripe_price_id = ?');
+        vals.push(price.id);
+      }
+    } catch (e) { console.error('Stripe price update failed:', e); }
+  }
+
+  sets.push("updated_at = datetime('now')");
+  vals.push(id);
+  if (sets.length > 1) {
+    await env.DB.prepare(`UPDATE subscription_plans SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+  }
+  return json({ id, ...data });
+}
+
+async function handleDeleteSubscriptionPlan(request, env, id) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  await env.DB.prepare('DELETE FROM subscription_plans WHERE id = ?').bind(id).run();
+  return new Response(null, { status: 204, headers: CORS });
+}
+
+// ── Subscribe (create Stripe Checkout in subscription mode) ──
+async function handleSubscribe(request, env) {
+  const { plan_id, customer } = await request.json();
+  if (!plan_id || !customer || !customer.email || !customer.name) return err('Données manquantes');
+
+  const plan = await env.DB.prepare('SELECT * FROM subscription_plans WHERE id = ? AND active = 1').bind(plan_id).first();
+  if (!plan) return err('Plan non trouvé', 404);
+  if (!plan.stripe_price_id) return err('Plan non configuré pour le paiement', 400);
+
+  const sessionParams = {
+    mode: 'subscription',
+    line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+    success_url: `${env.FRONTEND_URL}/abonnement/merci?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${env.FRONTEND_URL}/abonnement`,
+    customer_email: customer.email,
+    metadata: {
+      plan_id: plan.id,
+      customer_name: customer.name,
+      customer_phone: customer.phone || '',
+      customer_address: customer.address || '',
+    },
+    subscription_data: {
+      metadata: {
+        plan_id: plan.id,
+        customer_name: customer.name,
+        customer_phone: customer.phone || '',
+        customer_address: customer.address || '',
+      },
+    },
+  };
+
+  const session = await stripePost('/checkout/sessions', sessionParams, env.STRIPE_SECRET_KEY);
+  if (session.error) return err(session.error.message || 'Erreur Stripe', 500);
+
+  return json({ url: session.url });
+}
+
+// ── Subscriptions Management ──
+async function handleGetSubscriptions(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const { results } = await env.DB.prepare(
+    'SELECT s.*, sp.name as plan_name, sp.plan_type, sp.meals_per_week, sp.monthly_price FROM subscriptions s LEFT JOIN subscription_plans sp ON s.plan_id = sp.id ORDER BY s.created_at DESC'
+  ).all();
+  return json(results);
+}
+
+async function handleCancelSubscription(request, env, id) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+
+  const sub = await env.DB.prepare('SELECT * FROM subscriptions WHERE id = ?').bind(id).first();
+  if (!sub) return err('Abonnement non trouvé', 404);
+
+  // Cancel on Stripe
+  try {
+    await stripePost(`/subscriptions/${sub.stripe_subscription_id}`, { cancel_at_period_end: true }, env.STRIPE_SECRET_KEY);
+  } catch (e) { console.error('Stripe cancel failed:', e); }
+
+  await env.DB.prepare("UPDATE subscriptions SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").bind(id).run();
+  return json({ id, status: 'cancelled' });
+}
+
 // Settings
 async function handleGetPublicSettings(env) {
   const { results } = await env.DB.prepare('SELECT key, value FROM settings').all();
@@ -241,7 +410,7 @@ async function handleUpdateSettings(request, env) {
   const user = await requireAuth(request, env);
   if (!user) return err('Non autorisé', 401);
   const data = await request.json();
-  const allowed = ['bundle_enabled', 'bundle_min_items', 'bundle_discount_percent', 'delivery_fee', 'free_delivery_threshold', 'delivery_banner_enabled'];
+  const allowed = ['bundle_enabled', 'bundle_min_items', 'bundle_discount_percent', 'delivery_fee', 'free_delivery_threshold', 'delivery_banner_enabled', 'subscription_enabled', 'subscription_free_delivery'];
   for (const [key, value] of Object.entries(data)) {
     if (!allowed.includes(key)) continue;
     await env.DB.prepare(
@@ -369,29 +538,75 @@ async function handleWebhook(request, env) {
   }
 
   const event = JSON.parse(payload);
+
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const meta = session.metadata || {};
-    const items = JSON.parse(meta.items_json || '[]');
-    const subtotal = parseFloat(meta.subtotal || '0');
-    const discountPercent = parseInt(meta.discount_percent || '0');
-    const discount = subtotal * discountPercent / 100;
-    const total = (session.amount_total || 0) / 100;
-    const id = uuid();
 
+    if (session.mode === 'subscription') {
+      // ── Subscription checkout completed ──
+      const subId = uuid();
+      const stripeSubId = session.subscription;
+      const stripeCustomerId = session.customer;
+
+      await env.DB.prepare(
+        'INSERT INTO subscriptions (id, stripe_subscription_id, stripe_customer_id, plan_id, customer_name, customer_email, customer_phone, customer_address, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        subId, stripeSubId || '', stripeCustomerId || '',
+        meta.plan_id || '', meta.customer_name || '', session.customer_email || '',
+        meta.customer_phone || '', meta.customer_address || '', 'active'
+      ).run();
+    } else {
+      // ── Regular payment checkout ──
+      const items = JSON.parse(meta.items_json || '[]');
+      const subtotal = parseFloat(meta.subtotal || '0');
+      const discountPercent = parseInt(meta.discount_percent || '0');
+      const discount = subtotal * discountPercent / 100;
+      const total = (session.amount_total || 0) / 100;
+      const id = uuid();
+
+      await env.DB.prepare(
+        'INSERT INTO orders (id, stripe_session_id, stripe_payment_intent, customer_name, customer_email, customer_phone, customer_address, customer_notes, items, subtotal, discount, total, promo_code, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        id, session.id, session.payment_intent || '',
+        meta.customer_name || '', session.customer_email || '',
+        meta.customer_phone || '', meta.customer_address || '', meta.customer_notes || '',
+        meta.items_json || '[]', subtotal, discount, total,
+        meta.promo_code || null, 'paid'
+      ).run();
+
+      if (meta.promo_code) {
+        await env.DB.prepare('UPDATE promo_codes SET current_uses = current_uses + 1 WHERE code = ?').bind(meta.promo_code.toUpperCase()).run();
+      }
+    }
+  }
+
+  // Handle subscription lifecycle events
+  if (event.type === 'customer.subscription.updated') {
+    const sub = event.data.object;
+    const status = sub.cancel_at_period_end ? 'cancelling' : sub.status === 'active' ? 'active' : sub.status === 'past_due' ? 'past_due' : sub.status;
     await env.DB.prepare(
-      'INSERT INTO orders (id, stripe_session_id, stripe_payment_intent, customer_name, customer_email, customer_phone, customer_address, customer_notes, items, subtotal, discount, total, promo_code, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      "UPDATE subscriptions SET status = ?, current_period_start = ?, current_period_end = ?, updated_at = datetime('now') WHERE stripe_subscription_id = ?"
     ).bind(
-      id, session.id, session.payment_intent || '',
-      meta.customer_name || '', session.customer_email || '',
-      meta.customer_phone || '', meta.customer_address || '', meta.customer_notes || '',
-      meta.items_json || '[]', subtotal, discount, total,
-      meta.promo_code || null, 'paid'
+      status,
+      sub.current_period_start ? new Date(sub.current_period_start * 1000).toISOString() : null,
+      sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+      sub.id
     ).run();
+  }
 
-    // Increment promo code usage
-    if (meta.promo_code) {
-      await env.DB.prepare('UPDATE promo_codes SET current_uses = current_uses + 1 WHERE code = ?').bind(meta.promo_code.toUpperCase()).run();
+  if (event.type === 'customer.subscription.deleted') {
+    await env.DB.prepare(
+      "UPDATE subscriptions SET status = 'cancelled', updated_at = datetime('now') WHERE stripe_subscription_id = ?"
+    ).bind(event.data.object.id).run();
+  }
+
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object;
+    if (invoice.subscription) {
+      await env.DB.prepare(
+        "UPDATE subscriptions SET status = 'past_due', updated_at = datetime('now') WHERE stripe_subscription_id = ?"
+      ).bind(invoice.subscription).run();
     }
   }
 
@@ -427,6 +642,23 @@ export default {
       if (path === '/api/promo-codes/validate' && method === 'POST') return handleValidatePromo(request, env);
       if (path.startsWith('/api/promo-codes/') && method === 'PUT') return handleUpdatePromoCode(request, env, path.split('/')[3]);
       if (path.startsWith('/api/promo-codes/') && method === 'DELETE') return handleDeletePromoCode(request, env, path.split('/')[3]);
+
+      // Subscription Plans
+      if (path === '/api/subscription-plans' && method === 'GET') return handleGetSubscriptionPlans(env);
+      if (path === '/api/subscription-plans/admin' && method === 'GET') return handleGetAllSubscriptionPlans(request, env);
+      if (path === '/api/subscription-plans' && method === 'POST') return handleCreateSubscriptionPlan(request, env);
+      if (path.startsWith('/api/subscription-plans/') && method === 'PUT') return handleUpdateSubscriptionPlan(request, env, path.split('/')[3]);
+      if (path.startsWith('/api/subscription-plans/') && method === 'DELETE') return handleDeleteSubscriptionPlan(request, env, path.split('/')[3]);
+
+      // Subscribe
+      if (path === '/api/subscribe' && method === 'POST') return handleSubscribe(request, env);
+
+      // Subscriptions Management
+      if (path === '/api/subscriptions' && method === 'GET') return handleGetSubscriptions(request, env);
+      if (path.startsWith('/api/subscriptions/') && path.endsWith('/cancel') && method === 'POST') {
+        const subId = path.split('/')[3];
+        return handleCancelSubscription(request, env, subId);
+      }
 
       // Settings
       if (path === '/api/settings' && method === 'GET') return handleGetPublicSettings(env);
