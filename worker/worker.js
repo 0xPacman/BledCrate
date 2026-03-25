@@ -220,10 +220,46 @@ async function handleValidatePromo(request, env) {
   return json({ valid: true, discount_percent: promo.discount_percent });
 }
 
+// Settings
+async function handleGetPublicSettings(env) {
+  const { results } = await env.DB.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const row of results) settings[row.key] = row.value;
+  return json(settings);
+}
+
+async function handleGetSettings(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const { results } = await env.DB.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const row of results) settings[row.key] = row.value;
+  return json(settings);
+}
+
+async function handleUpdateSettings(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const data = await request.json();
+  const allowed = ['bundle_enabled', 'bundle_min_items', 'bundle_discount_percent', 'delivery_fee', 'free_delivery_threshold', 'delivery_banner_enabled'];
+  for (const [key, value] of Object.entries(data)) {
+    if (!allowed.includes(key)) continue;
+    await env.DB.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).bind(key, String(value)).run();
+  }
+  return handleGetSettings(request, env);
+}
+
 // Stripe Checkout
 async function handleCheckout(request, env) {
-  const { items, customer, promo_code } = await request.json();
+  const { items, customer, promo_code, bundle_discount, delivery_fee: clientDeliveryFee } = await request.json();
   if (!items || !items.length || !customer) return err('Données manquantes');
+
+  // Load settings for server-side validation
+  const { results: settingsRows } = await env.DB.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const row of settingsRows) settings[row.key] = row.value;
 
   let discountPercent = 0;
   let promoId = null;
@@ -234,9 +270,26 @@ async function handleCheckout(request, env) {
     if (promo) { discountPercent = promo.discount_percent; promoId = promo.id; }
   }
 
+  // Validate bundle discount server-side
+  let bundleDiscountPercent = 0;
+  if (bundle_discount && settings.bundle_enabled === 'true') {
+    const totalItems = items.reduce((s, i) => s + i.quantity, 0);
+    const minItems = parseInt(settings.bundle_min_items || '3');
+    if (totalItems >= minItems) {
+      bundleDiscountPercent = parseInt(settings.bundle_discount_percent || '10');
+    }
+  }
+
   const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
-  const discount = subtotal * discountPercent / 100;
-  const total = subtotal - discount;
+  const bundleDiscount = subtotal * bundleDiscountPercent / 100;
+  const afterBundle = subtotal - bundleDiscount;
+  const promoDiscount = afterBundle * discountPercent / 100;
+  const afterDiscounts = afterBundle - promoDiscount;
+
+  // Calculate delivery fee server-side
+  const freeThreshold = parseFloat(settings.free_delivery_threshold || '75');
+  const baseFee = parseFloat(settings.delivery_fee || '5');
+  const deliveryFee = afterDiscounts >= freeThreshold ? 0 : baseFee;
 
   // Build Stripe line items
   const line_items = items.map(item => ({
@@ -248,7 +301,20 @@ async function handleCheckout(request, env) {
     quantity: item.quantity,
   }));
 
+  // Add delivery fee as a line item if applicable
+  if (deliveryFee > 0) {
+    line_items.push({
+      price_data: {
+        currency: 'cad',
+        product_data: { name: 'Frais de livraison' },
+        unit_amount: Math.round(deliveryFee * 100),
+      },
+      quantity: 1,
+    });
+  }
+
   // Add discount as a coupon if applicable
+  const totalDiscountPercent = bundleDiscountPercent + discountPercent - (bundleDiscountPercent * discountPercent / 100);
   const sessionParams = {
     mode: 'payment',
     line_items,
@@ -263,16 +329,23 @@ async function handleCheckout(request, env) {
       items_json: JSON.stringify(items),
       promo_code: promo_code || '',
       discount_percent: String(discountPercent),
+      bundle_discount_percent: String(bundleDiscountPercent),
       subtotal: String(subtotal),
+      delivery_fee: String(deliveryFee),
     },
   };
 
-  // If there's a discount, create a Stripe coupon first
-  if (discountPercent > 0) {
+  // If there's any discount, create a Stripe coupon
+  const combinedDiscountAmount = bundleDiscount + promoDiscount;
+  if (combinedDiscountAmount > 0) {
     const coupon = await stripePost('/coupons', {
-      percent_off: discountPercent,
+      amount_off: Math.round(combinedDiscountAmount * 100),
+      currency: 'cad',
       duration: 'once',
-      name: `Promo ${promo_code}`,
+      name: [
+        bundleDiscountPercent > 0 ? `Bundle -${bundleDiscountPercent}%` : '',
+        discountPercent > 0 ? `Promo ${promo_code} -${discountPercent}%` : '',
+      ].filter(Boolean).join(' + '),
     }, env.STRIPE_SECRET_KEY);
     if (coupon.id) {
       sessionParams.discounts = [{ coupon: coupon.id }];
@@ -354,6 +427,11 @@ export default {
       if (path === '/api/promo-codes/validate' && method === 'POST') return handleValidatePromo(request, env);
       if (path.startsWith('/api/promo-codes/') && method === 'PUT') return handleUpdatePromoCode(request, env, path.split('/')[3]);
       if (path.startsWith('/api/promo-codes/') && method === 'DELETE') return handleDeletePromoCode(request, env, path.split('/')[3]);
+
+      // Settings
+      if (path === '/api/settings' && method === 'GET') return handleGetPublicSettings(env);
+      if (path === '/api/settings/admin' && method === 'GET') return handleGetSettings(request, env);
+      if (path === '/api/settings' && method === 'PUT') return handleUpdateSettings(request, env);
 
       // Checkout
       if (path === '/api/checkout' && method === 'POST') return handleCheckout(request, env);

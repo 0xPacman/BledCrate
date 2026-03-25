@@ -53,6 +53,15 @@ export interface PromoCode {
   created_at: string;
 }
 
+export interface SiteSettings {
+  bundle_enabled: string;
+  bundle_min_items: string;
+  bundle_discount_percent: string;
+  delivery_fee: string;
+  free_delivery_threshold: string;
+  delivery_banner_enabled: string;
+}
+
 // Auth helpers
 function getToken(): string | null {
   return localStorage.getItem('bledcrate_admin_token');
@@ -122,11 +131,19 @@ export const updatePromoCode = (id: string, c: Partial<PromoCode>) =>
 export const deletePromoCode = (id: string) =>
   api<void>(`/api/promo-codes/${id}`, { method: 'DELETE' });
 
+// Settings
+export const fetchPublicSettings = () => api<SiteSettings>('/api/settings');
+export const fetchAdminSettings = () => api<SiteSettings>('/api/settings/admin');
+export const updateSettings = (s: Partial<SiteSettings>) =>
+  api<SiteSettings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) });
+
 // Public - Checkout
 export const createCheckout = (data: {
   items: OrderItem[];
   customer: { name: string; email: string; phone: string; address: string; notes: string };
   promo_code?: string;
+  bundle_discount?: boolean;
+  delivery_fee?: number;
 }) => api<{ url: string }>('/api/checkout', { method: 'POST', body: JSON.stringify(data) });
 
 export const validatePromo = (code: string) =>

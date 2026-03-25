@@ -40,3 +40,17 @@ CREATE TABLE IF NOT EXISTS promo_codes (
   expires_at TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Default settings
+INSERT OR IGNORE INTO settings (key, value) VALUES ('bundle_enabled', 'true');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('bundle_min_items', '3');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('bundle_discount_percent', '10');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('delivery_fee', '5');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('free_delivery_threshold', '75');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('delivery_banner_enabled', 'true');

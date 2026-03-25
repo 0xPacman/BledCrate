@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Package, ClipboardList, Tag, LogOut, Plus, Pencil, Trash2,
-  Eye, Search, Loader2, ImageIcon, DollarSign, Users,
+  Eye, Search, Loader2, ImageIcon, DollarSign, Users, Settings, Truck, PackageOpen, Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { toast, Toaster } from 'sonner';
 import * as api from '@/lib/api';
 import type { Product, ProductVariant, Order, PromoCode } from '@/lib/api';
 
-type Tab = 'products' | 'orders' | 'promos';
+type Tab = 'products' | 'orders' | 'promos' | 'settings';
 type ProductForm = {
   name: string; description: string; price: string; image: string;
   category: 'entree' | 'plat' | 'dessert'; tags: string; variants: ProductVariant[]; active: boolean;
@@ -614,6 +614,159 @@ function PromoCodesPanel() {
   );
 }
 
+// ── Settings Panel ──
+function SettingsPanel() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    bundle_enabled: true,
+    bundle_min_items: '3',
+    bundle_discount_percent: '10',
+    delivery_fee: '5',
+    free_delivery_threshold: '75',
+    delivery_banner_enabled: true,
+  });
+
+  const load = useCallback(async () => {
+    try {
+      const s = await api.fetchAdminSettings();
+      setForm({
+        bundle_enabled: s.bundle_enabled === 'true',
+        bundle_min_items: s.bundle_min_items || '3',
+        bundle_discount_percent: s.bundle_discount_percent || '10',
+        delivery_fee: s.delivery_fee || '5',
+        free_delivery_threshold: s.free_delivery_threshold || '75',
+        delivery_banner_enabled: s.delivery_banner_enabled === 'true',
+      });
+    } catch { toast.error('Impossible de charger les paramètres'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.updateSettings({
+        bundle_enabled: String(form.bundle_enabled),
+        bundle_min_items: form.bundle_min_items,
+        bundle_discount_percent: form.bundle_discount_percent,
+        delivery_fee: form.delivery_fee,
+        free_delivery_threshold: form.free_delivery_threshold,
+        delivery_banner_enabled: String(form.delivery_banner_enabled),
+      });
+      toast.success('Paramètres sauvegardés');
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-moroccan-red" /></div>;
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-900">Paramètres</h2>
+        <p className="text-gray-500 text-sm">Configurez les bundles et la livraison</p>
+      </div>
+
+      {/* Bundle Settings */}
+      <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+            <PackageOpen className="w-5 h-5 text-orange-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900">Bundle / Lot</h3>
+            <p className="text-xs text-gray-500">Réduction automatique quand le client commande plusieurs plats</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.bundle_enabled}
+              onChange={e => setForm(f => ({ ...f, bundle_enabled: e.target.checked }))}
+              className="w-5 h-5 accent-moroccan-red"
+            />
+            <span className="text-sm font-medium text-gray-700">Activer les bundles</span>
+          </label>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Nombre minimum de plats"
+              type="number"
+              min="2"
+              max="20"
+              value={form.bundle_min_items}
+              onChange={e => setForm(f => ({ ...f, bundle_min_items: e.target.value }))}
+            />
+            <Input
+              label="Réduction bundle (%)"
+              type="number"
+              min="1"
+              max="50"
+              value={form.bundle_discount_percent}
+              onChange={e => setForm(f => ({ ...f, bundle_discount_percent: e.target.value }))}
+            />
+          </div>
+          <div className="bg-orange-50 rounded-lg p-3 text-sm text-orange-800">
+            <strong>Aperçu :</strong> Les clients qui commandent <strong>{form.bundle_min_items}+ plats</strong> recevront <strong>{form.bundle_discount_percent}% de réduction</strong> automatiquement.
+          </div>
+        </div>
+      </div>
+
+      {/* Delivery Settings */}
+      <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+            <Truck className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900">Livraison</h3>
+            <p className="text-xs text-gray-500">Frais de livraison et seuil de gratuité</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.delivery_banner_enabled}
+              onChange={e => setForm(f => ({ ...f, delivery_banner_enabled: e.target.checked }))}
+              className="w-5 h-5 accent-moroccan-red"
+            />
+            <span className="text-sm font-medium text-gray-700">Afficher la bannière de livraison sur le site</span>
+          </label>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Frais de livraison ($)"
+              type="number"
+              min="0"
+              step="0.5"
+              value={form.delivery_fee}
+              onChange={e => setForm(f => ({ ...f, delivery_fee: e.target.value }))}
+            />
+            <Input
+              label="Livraison gratuite à partir de ($)"
+              type="number"
+              min="0"
+              step="5"
+              value={form.free_delivery_threshold}
+              onChange={e => setForm(f => ({ ...f, free_delivery_threshold: e.target.value }))}
+            />
+          </div>
+          <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-800">
+            <strong>Aperçu :</strong> Livraison à <strong>{parseFloat(form.delivery_fee).toFixed(2)} $</strong> — <strong>GRATUITE</strong> à partir de <strong>{parseFloat(form.free_delivery_threshold).toFixed(2)} $</strong> d'achat.
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-5">
+        {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+        Sauvegarder les paramètres
+      </Button>
+    </div>
+  );
+}
+
 // ── Main Admin Page ──
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState(api.isLoggedIn());
@@ -630,6 +783,7 @@ export default function AdminPage() {
     { key: 'orders', label: 'Commandes', icon: ClipboardList },
     { key: 'products', label: 'Produits', icon: Package },
     { key: 'promos', label: 'Promos', icon: Tag },
+    { key: 'settings', label: 'Paramètres', icon: Settings },
   ];
 
   return (
@@ -666,6 +820,7 @@ export default function AdminPage() {
           {activeTab === 'products' && <ProductsPanel />}
           {activeTab === 'orders' && <OrdersPanel />}
           {activeTab === 'promos' && <PromoCodesPanel />}
+          {activeTab === 'settings' && <SettingsPanel />}
         </main>
       </div>
 

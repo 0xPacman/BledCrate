@@ -18,6 +18,8 @@ import {
   Mail,
   ArrowUp,
   ChevronRight,
+  Package,
+  Percent,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -28,7 +30,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast, Toaster } from 'sonner';
 import menuData from '@/data/menu.json';
-import { fetchProducts as apiFetchProducts, createCheckout, validatePromo } from '@/lib/api';
+import { fetchProducts as apiFetchProducts, createCheckout, validatePromo, fetchPublicSettings } from '@/lib/api';
+import type { SiteSettings } from '@/lib/api';
 import './App.css';
 
 // Types
@@ -78,6 +81,7 @@ function App() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(fallbackMenuItems);
   const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number } | null>(null);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     name: '',
     email: '',
@@ -87,7 +91,7 @@ function App() {
     promoCode: '',
   });
 
-  // Load products from API (fallback to JSON)
+  // Load products from API (fallback to JSON) + settings
   useEffect(() => {
     apiFetchProducts()
       .then(products => {
@@ -95,6 +99,9 @@ function App() {
         if (active.length > 0) setMenuItems(active as MenuItem[]);
       })
       .catch(() => { /* use fallback JSON data */ });
+    fetchPublicSettings()
+      .then(s => setSiteSettings(s))
+      .catch(() => { /* use defaults */ });
   }, []);
 
   // Handle scroll for navbar and back-to-top
@@ -167,9 +174,25 @@ function App() {
     }
   };
 
-  const discountAmount = promoApplied ? (cartTotal * promoApplied.discount / 100) : 0;
-  const afterDiscount = cartTotal - discountAmount;
-  const finalTotal = Math.round(afterDiscount * 1.15 * 100) / 100;
+  // Bundle discount logic
+  const bundleEnabled = siteSettings?.bundle_enabled === 'true';
+  const bundleMinItems = parseInt(siteSettings?.bundle_min_items || '3');
+  const bundleDiscountPercent = parseInt(siteSettings?.bundle_discount_percent || '10');
+  const qualifiesForBundle = bundleEnabled && cartCount >= bundleMinItems;
+  const bundleDiscountAmount = qualifiesForBundle ? (cartTotal * bundleDiscountPercent / 100) : 0;
+  const afterBundle = cartTotal - bundleDiscountAmount;
+
+  // Promo discount (applied after bundle)
+  const discountAmount = promoApplied ? (afterBundle * promoApplied.discount / 100) : 0;
+  const afterDiscount = afterBundle - discountAmount;
+
+  // Delivery fee
+  const freeDeliveryThreshold = parseFloat(siteSettings?.free_delivery_threshold || '75');
+  const baseDeliveryFee = parseFloat(siteSettings?.delivery_fee || '5');
+  const deliveryFee = afterDiscount >= freeDeliveryThreshold ? 0 : baseDeliveryFee;
+  const amountToFreeDelivery = freeDeliveryThreshold - afterDiscount;
+
+  const finalTotal = Math.round((afterDiscount + deliveryFee) * 1.15 * 100) / 100;
 
   // Send order via Stripe Checkout
   const sendOrder = async () => {
@@ -194,6 +217,8 @@ function App() {
           notes: customerInfo.notes,
         },
         promo_code: promoApplied?.code,
+        bundle_discount: qualifiesForBundle,
+        delivery_fee: deliveryFee,
       });
       // Save order data to localStorage before redirect so success page can recover it
       localStorage.setItem('bledcrate_pending_order', JSON.stringify({
@@ -220,9 +245,11 @@ function App() {
   return (
     <div className="min-h-screen bg-moroccan-cream">
       {/* Navigation */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-        isScrolled 
-          ? 'glass shadow-lg py-2' 
+      <nav className={`fixed left-0 right-0 z-50 transition-all duration-500 ${
+        siteSettings?.delivery_banner_enabled === 'true' ? 'top-[36px]' : 'top-0'
+      } ${
+        isScrolled
+          ? 'glass shadow-lg py-2'
           : 'bg-transparent py-4'
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -329,12 +356,48 @@ function App() {
                   )}
                 </ScrollArea>
                 {cart.length > 0 && (
-                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t">
-                    <div className="flex justify-between items-center mb-1">
+                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t space-y-2">
+                    {/* Bundle progress */}
+                    {bundleEnabled && !qualifiesForBundle && cartCount > 0 && (
+                      <div className="bg-orange-50 rounded-lg p-2.5 text-xs">
+                        <div className="flex items-center gap-1.5 text-orange-700 font-medium mb-1">
+                          <Package className="w-3.5 h-3.5" />
+                          Ajoutez {bundleMinItems - cartCount} plat{bundleMinItems - cartCount > 1 ? 's' : ''} de plus pour -{bundleDiscountPercent}%
+                        </div>
+                        <div className="w-full bg-orange-200 rounded-full h-1.5">
+                          <div className="bg-orange-500 h-1.5 rounded-full transition-all" style={{ width: `${Math.min(100, (cartCount / bundleMinItems) * 100)}%` }} />
+                        </div>
+                      </div>
+                    )}
+                    {qualifiesForBundle && (
+                      <div className="bg-green-50 rounded-lg p-2.5 text-xs flex items-center gap-1.5 text-green-700 font-medium">
+                        <Percent className="w-3.5 h-3.5" />
+                        Bundle activé ! -{bundleDiscountPercent}% ({bundleDiscountAmount.toFixed(2)} $)
+                      </div>
+                    )}
+                    {/* Delivery progress */}
+                    {deliveryFee > 0 && amountToFreeDelivery > 0 && (
+                      <div className="bg-blue-50 rounded-lg p-2.5 text-xs">
+                        <div className="flex items-center gap-1.5 text-blue-700 font-medium mb-1">
+                          <Truck className="w-3.5 h-3.5" />
+                          Plus que {amountToFreeDelivery.toFixed(2)} $ pour la livraison gratuite !
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-1.5">
+                          <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${Math.min(100, (afterDiscount / freeDeliveryThreshold) * 100)}%` }} />
+                        </div>
+                      </div>
+                    )}
+                    {deliveryFee === 0 && cartCount > 0 && (
+                      <div className="bg-green-50 rounded-lg p-2.5 text-xs flex items-center gap-1.5 text-green-700 font-medium">
+                        <Truck className="w-3.5 h-3.5" />
+                        Livraison gratuite !
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
                       <span className="text-moroccan-brown font-medium">Total</span>
                       <span className="text-2xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
                     </div>
-                    <p className="text-xs text-moroccan-brown/40 text-right mb-4">Frais et taxes inclus</p>
+                    <p className="text-xs text-moroccan-brown/40 text-right">Livraison, frais et taxes inclus</p>
                     <Button
                       onClick={() => setCheckoutOpen(true)}
                       className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white font-semibold py-6 btn-liquid"
@@ -399,6 +462,27 @@ function App() {
           )}
         </div>
       </nav>
+
+      {/* Delivery Banner */}
+      {siteSettings?.delivery_banner_enabled === 'true' && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-moroccan-red text-white text-center py-2 text-sm font-semibold shadow-md">
+          <div className="flex items-center justify-center gap-2">
+            <Truck className="w-4 h-4" />
+            <span>
+              Livraison GRATUITE sur les commandes de {parseFloat(siteSettings.free_delivery_threshold || '75').toFixed(0)} $+
+            </span>
+            {bundleEnabled && (
+              <>
+                <span className="mx-2 opacity-50">|</span>
+                <Package className="w-4 h-4" />
+                <span>
+                  {bundleDiscountPercent}% de réduction sur {bundleMinItems}+ plats
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Hero Section */}
       <section id="hero" className="relative min-h-screen flex items-center justify-center overflow-hidden">
@@ -524,6 +608,30 @@ function App() {
               préparées avec les meilleurs ingrédients
             </p>
           </div>
+
+          {/* Bundle Promo Banner */}
+          {bundleEnabled && (
+            <div className="mb-12 bg-gradient-to-r from-moroccan-red to-moroccan-orange rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 opacity-10">
+                <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-bl-full" />
+              </div>
+              <div className="relative z-10 flex flex-col sm:flex-row items-center gap-4 sm:gap-8">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+                  <Package className="w-8 h-8" />
+                </div>
+                <div className="text-center sm:text-left flex-1">
+                  <h3 className="font-display text-3xl sm:text-4xl mb-1">Offre Bundle</h3>
+                  <p className="text-white/90 text-sm sm:text-base">
+                    Commandez <strong>{bundleMinItems} plats ou plus</strong> et économisez <strong>{bundleDiscountPercent}%</strong> automatiquement sur votre commande !
+                  </p>
+                </div>
+                <div className="bg-white/20 backdrop-blur-sm rounded-xl px-6 py-3 text-center shrink-0">
+                  <span className="font-display text-4xl block">-{bundleDiscountPercent}%</span>
+                  <span className="text-xs text-white/80">{bundleMinItems}+ plats</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           <Tabs defaultValue="entree" className="w-full">
             <TabsList className="flex justify-center mb-12 bg-white/50 p-2 rounded-full max-w-md mx-auto">
@@ -890,24 +998,38 @@ function App() {
                   <span className="font-semibold ml-4">{(i.price * i.quantity).toFixed(2)} $</span>
                 </div>
               ))}
-              {promoApplied && (
+              {(qualifiesForBundle || promoApplied || deliveryFee > 0) && (
                 <>
                   <div className="border-t pt-2 flex justify-between text-moroccan-brown/70">
                     <span>Sous-total</span>
                     <span>{cartTotal.toFixed(2)} $</span>
                   </div>
-                  <div className="flex justify-between text-green-600">
-                    <span>Promo ({promoApplied.code})</span>
-                    <span>-{discountAmount.toFixed(2)} $</span>
+                  {qualifiesForBundle && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Bundle -{bundleDiscountPercent}%</span>
+                      <span>-{bundleDiscountAmount.toFixed(2)} $</span>
+                    </div>
+                  )}
+                  {promoApplied && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Promo ({promoApplied.code}) -{promoApplied.discount}%</span>
+                      <span>-{discountAmount.toFixed(2)} $</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-moroccan-brown/70">
+                    <span>Livraison</span>
+                    <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
+                      {deliveryFee === 0 ? 'GRATUITE' : `${deliveryFee.toFixed(2)} $`}
+                    </span>
                   </div>
                 </>
               )}
-              <div className={`${promoApplied ? '' : 'border-t pt-2'}`}>
+              <div className={`${(qualifiesForBundle || promoApplied || deliveryFee > 0) ? '' : 'border-t pt-2'}`}>
                 <div className="flex justify-between font-bold text-moroccan-red text-lg">
                   <span>Total</span>
                   <span>{finalTotal.toFixed(2)} $</span>
                 </div>
-                <p className="text-xs text-moroccan-brown/40 text-right mt-0.5">Frais et taxes inclus</p>
+                <p className="text-xs text-moroccan-brown/40 text-right mt-0.5">Livraison, frais et taxes inclus</p>
               </div>
             </div>
             {/* Promo Code */}
