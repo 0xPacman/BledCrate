@@ -728,14 +728,18 @@ function App() {
           <div className="flex items-center justify-center gap-1.5 sm:gap-3 px-3">
             <Truck className="w-3.5 h-3.5 shrink-0 text-moroccan-gold" />
             <span className="hidden sm:inline">
-              📦 Commande passée Dim–Mer → livraison Samedi
+              📦 Commande Dim–Mer → livraison Samedi
               <span className="mx-2 text-moroccan-gold/50">|</span>
-              📦 Commande passée Jeu–Sam → livraison Mercredi
+              📦 Commande Jeu–Sam → livraison Mercredi
+              <span className="mx-2 text-moroccan-gold/50">|</span>
+              🚚 Livraison gratuite 75$+
             </span>
             <span className="sm:hidden">
               Commande Dim–Mer → livrée Sam
-              <span className="mx-1.5 text-moroccan-gold/50">|</span>
-              Commande Jeu–Sam → livrée Mer
+              <span className="mx-1 text-moroccan-gold/50">|</span>
+              Jeu–Sam → livrée Mer
+              <span className="mx-1 text-moroccan-gold/50">|</span>
+              <span className="text-moroccan-gold">Livraison gratuite 75$+</span>
             </span>
           </div>
         </div>
@@ -1708,12 +1712,13 @@ function App() {
               <p className="text-white/80 text-base mb-6 max-w-lg">
                 Recevez vos repas marocains préférés chaque semaine. Livraison gratuite, prix réduits, et des saveurs authentiques à votre porte.
               </p>
-              <Link to="/abonnement">
-                <Button className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-6 text-lg font-semibold rounded-full">
-                  Voir les plans
-                  <ChevronRight className="w-5 h-5 ml-1" />
-                </Button>
-              </Link>
+              <Button
+                onClick={() => { setPurchaseMode('subscription'); setSubStep('meals'); scrollToSection('menu'); }}
+                className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-6 text-lg font-semibold rounded-full"
+              >
+                Voir les plans
+                <ChevronRight className="w-5 h-5 ml-1" />
+              </Button>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 text-center shrink-0">
               <p className="text-moroccan-gold text-sm font-medium mb-1">À partir de</p>
@@ -1746,17 +1751,6 @@ function App() {
               Commander
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
-            {siteSettings?.subscription_enabled === 'true' && (
-              <Link to="/abonnement">
-                <Button
-                  variant="outline"
-                  className="border-2 border-white/40 text-white hover:bg-white hover:text-moroccan-red px-8 py-6 text-lg font-semibold rounded-full bg-white/10 backdrop-blur-sm"
-                >
-                  S'abonner
-                  <Package className="w-5 h-5 ml-2" />
-                </Button>
-              </Link>
-            )}
           </div>
         </div>
       </section>
