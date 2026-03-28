@@ -1,3 +1,4 @@
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Mail, Shield, Database, Users, Lock, Cookie, UserX, RefreshCw, MessageCircle, Eye, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -5,6 +6,10 @@ import { Button } from '@/components/ui/button';
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-moroccan-cream">
+      <Helmet>
+        <title>Politique de Confidentialité | BledCrate</title>
+        <meta name="description" content="Politique de confidentialité de BledCrate. Comment nous protégeons vos données personnelles." />
+      </Helmet>
       {/* Header */}
       <header className="bg-moroccan-brown text-white py-6 px-4 sm:px-6 lg:px-8 sticky top-0 z-50 shadow-lg">
         <div className="max-w-4xl mx-auto flex items-center gap-4">

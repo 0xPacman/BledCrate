@@ -1,3 +1,4 @@
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Mail, FileText, Truck, CreditCard, ShoppingCart, Users, Shield, Scale, RefreshCw, MessageCircle, AlertTriangle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -5,6 +6,10 @@ import { Button } from '@/components/ui/button';
 export default function TermsPage() {
   return (
     <div className="min-h-screen bg-moroccan-cream">
+      <Helmet>
+        <title>Conditions Générales | BledCrate</title>
+        <meta name="description" content="Conditions générales d'utilisation de BledCrate. Termes de vente pour les commandes de repas marocains." />
+      </Helmet>
       {/* Header */}
       <header className="bg-moroccan-brown text-white py-6 px-4 sm:px-6 lg:px-8 sticky top-0 z-50 shadow-lg">
         <div className="max-w-4xl mx-auto flex items-center gap-4">

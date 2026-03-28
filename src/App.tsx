@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
   ShoppingCart,
   ChefHat,
@@ -491,6 +492,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-moroccan-cream">
+      <Helmet>
+        <title>BledCrate - Box Repas Marocains Authentiques | Livraison Montréal</title>
+        <meta name="description" content="Commandez vos box de repas marocains authentiques faits maison. Couscous, tagine, pastilla et plus. Livraison gratuite dans le Grand Montréal. Halal et frais." />
+      </Helmet>
       {/* Navigation */}
       <nav className={`fixed left-0 right-0 z-50 transition-all duration-500 ${
         siteSettings?.delivery_banner_enabled === 'true' ? 'top-[32px]' : 'top-0'
@@ -572,7 +577,7 @@ function App() {
                       {cart.map((item, idx) => (
                         <div key={`${item.id}-${item.selectedVariant}`} className="bg-white rounded-xl p-3 shadow-sm animate-slide-up" style={{ animationDelay: `${idx * 0.05}s` }}>
                           <div className="flex gap-3">
-                            <img src={item.image} alt={item.name} className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-lg shrink-0" />
+                            <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-lg shrink-0" />
                             <div className="flex-1">
                               <h4 className="font-semibold text-moroccan-brown">{item.name}</h4>
                               {item.selectedVariant && (
@@ -723,14 +728,14 @@ function App() {
           <div className="flex items-center justify-center gap-1.5 sm:gap-3 px-3">
             <Truck className="w-3.5 h-3.5 shrink-0 text-moroccan-gold" />
             <span className="hidden sm:inline">
-              Dim–Mer → livraison Samedi
+              📦 Commande passée Dim–Mer → livraison Samedi
               <span className="mx-2 text-moroccan-gold/50">|</span>
-              Jeu–Sam → livraison Mercredi
+              📦 Commande passée Jeu–Sam → livraison Mercredi
             </span>
             <span className="sm:hidden">
-              Dim–Mer → Sam
+              Commande Dim–Mer → livrée Sam
               <span className="mx-1.5 text-moroccan-gold/50">|</span>
-              Jeu–Sam → Mer
+              Commande Jeu–Sam → livrée Mer
             </span>
           </div>
         </div>
@@ -742,7 +747,7 @@ function App() {
         <div className="absolute inset-0">
           <img
             src="/hero-moroccan.jpg"
-            alt="Cuisine Marocaine"
+            alt="Box repas marocains authentiques - couscous, tagine, pastilla livrés à Montréal"
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-moroccan-cream" />
@@ -962,7 +967,7 @@ function App() {
                           style={{ animationDelay: `${idx * 0.05}s` }}
                         >
                           <div className="relative img-zoom h-48">
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} loading="lazy" className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                             {isSelected && (
                               <div className="absolute top-2 right-2 w-8 h-8 bg-moroccan-red rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">
@@ -1028,7 +1033,7 @@ function App() {
                           {items.map(([key, { item, qty, variant }]) => (
                             <div key={key} className="bg-white rounded-xl p-3 flex items-center justify-between shadow-sm">
                               <div className="flex items-center gap-3">
-                                <img src={item.image} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />
+                                <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} className="w-12 h-12 rounded-lg object-cover" />
                                 <div>
                                   <p className="font-medium text-moroccan-brown">{item.name}</p>
                                   {variant && <p className="text-xs text-moroccan-brown/50">{variant.name}</p>}
@@ -1232,7 +1237,7 @@ function App() {
                           style={{ animationDelay: `${idx * 0.05}s` }}
                         >
                           <div className="relative img-zoom h-48">
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} loading="lazy" className="w-full h-full object-cover" />
                             {qty > 0 && (
                               <div className="absolute top-2 right-2 w-8 h-8 bg-moroccan-gold rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">{qty}</div>
                             )}
@@ -1317,7 +1322,7 @@ function App() {
                                 style={{ animationDelay: `${idx * 0.05}s` }}
                               >
                                 <div className="relative img-zoom h-48">
-                                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                  <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} loading="lazy" className="w-full h-full object-cover" />
                                   {qty > 0 && (
                                     <div className="absolute top-2 right-2 w-8 h-8 bg-moroccan-gold rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">{qty}</div>
                                   )}
@@ -1381,7 +1386,7 @@ function App() {
                       {Object.values(subPlats).map(({ item, qty }) => (
                         <div key={item.id} className="bg-white rounded-xl p-3 flex items-center justify-between shadow-sm">
                           <div className="flex items-center gap-3">
-                            <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover" />
+                            <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} className="w-10 h-10 rounded-lg object-cover" />
                             <span className="font-medium text-moroccan-brown">{item.name}</span>
                           </div>
                           <span className="text-sm text-moroccan-brown/50">x{qty}</span>
@@ -1400,7 +1405,7 @@ function App() {
                         {Object.values(subExtras).map(({ item, qty, category }) => (
                           <div key={item.id} className="bg-white rounded-xl p-3 flex items-center justify-between shadow-sm">
                             <div className="flex items-center gap-3">
-                              <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover" />
+                              <img src={item.image} alt={`${item.name} - plat marocain authentique BledCrate`} className="w-10 h-10 rounded-lg object-cover" />
                               <div>
                                 <span className="font-medium text-moroccan-brown">{item.name}</span>
                                 <Badge className="ml-2 text-xs bg-moroccan-brown/10 text-moroccan-brown/50">{category === 'entree' ? 'Entrée' : 'Dessert'}</Badge>
@@ -1722,7 +1727,7 @@ function App() {
       {/* CTA Section */}
       <section className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         <div className="absolute inset-0">
-          <img src="/mint-tea.jpg" alt="Thé à la Menthe" className="w-full h-full object-cover" />
+          <img src="/mint-tea.jpg" alt="Thé à la menthe marocain traditionnel - BledCrate Montréal" loading="lazy" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-moroccan-red/90 to-moroccan-red-dark/90" />
         </div>
 

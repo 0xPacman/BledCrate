@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle, ShoppingCart, Package, Copy, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -61,6 +62,10 @@ export default function SuccessPage() {
 
   return (
     <div className="min-h-screen bg-moroccan-cream flex items-center justify-center p-4">
+      <Helmet>
+        <title>Commande Confirmée | BledCrate</title>
+        <meta name="robots" content="noindex" />
+      </Helmet>
       <div className="bg-white rounded-2xl shadow-moroccan p-8 sm:p-12 max-w-md w-full text-center">
         <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-scale-in">
           <CheckCircle className="w-10 h-10 text-green-600" />

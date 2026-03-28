@@ -223,9 +223,16 @@ async function handleGetOrders(request, env) {
 async function handleUpdateOrder(request, env, id) {
   const user = await requireAuth(request, env);
   if (!user) return err('Non autorisé', 401);
-  const { status } = await request.json();
-  await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
-  return json({ id, status });
+  const data = await request.json();
+  const sets = [];
+  const vals = [];
+  if (data.status !== undefined) { sets.push('status = ?'); vals.push(data.status); }
+  if (data.tracking_step !== undefined) { sets.push('tracking_step = ?'); vals.push(data.tracking_step); }
+  if (data.tracking_note !== undefined) { sets.push('tracking_note = ?'); vals.push(data.tracking_note); }
+  if (sets.length === 0) return err('Rien à mettre à jour', 400);
+  vals.push(id);
+  await env.DB.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+  return json({ id, ...data });
 }
 
 // Promo Codes
@@ -836,6 +843,17 @@ export default {
         return json({ ...order, items: JSON.parse(order.items || '[]') });
       }
       if (path.startsWith('/api/orders/') && method === 'PATCH') return handleUpdateOrder(request, env, path.split('/')[3]);
+
+      // Track order by tracking code
+      if (path.startsWith('/api/track/') && method === 'GET') {
+        const trackCode = path.split('/')[3]?.toUpperCase();
+        if (!trackCode) return err('Code de suivi manquant', 400);
+        const order = await env.DB.prepare(
+          'SELECT id, tracking_code, customer_name, tracking_step, tracking_note, created_at FROM orders WHERE UPPER(tracking_code) = ?'
+        ).bind(trackCode).first();
+        if (!order) return err('Commande non trouvée', 404);
+        return json({ ...order, tracking_step: order.tracking_step || 1, tracking_note: order.tracking_note || '' });
+      }
 
       // Promo Codes
       if (path === '/api/promo-codes' && method === 'GET') return handleGetPromoCodes(request, env);

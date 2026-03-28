@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { HelmetProvider } from 'react-helmet-async'
 import './index.css'
 import App from './App.tsx'
 import PolicyPage from './pages/PolicyPage.tsx'
@@ -14,6 +15,7 @@ import TrackPage from './pages/TrackPage.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <HelmetProvider>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<App />} />
@@ -27,5 +29,6 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/track" element={<TrackPage />} />
       </Routes>
     </BrowserRouter>
+    </HelmetProvider>
   </StrictMode>,
 )

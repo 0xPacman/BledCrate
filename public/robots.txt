@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /0x/
+Disallow: /admin
+
+Sitemap: https://bledcrate.ca/sitemap.xml

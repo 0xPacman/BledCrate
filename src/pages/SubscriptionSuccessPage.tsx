@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { Check, Calendar, ArrowRight, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,10 @@ export default function SubscriptionSuccessPage() {
 
   return (
     <div className="min-h-screen bg-moroccan-cream flex items-center justify-center p-4">
+      <Helmet>
+        <title>Abonnement Confirmé | BledCrate</title>
+        <meta name="robots" content="noindex" />
+      </Helmet>
       <div className="max-w-md w-full">
         <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-scale-in">

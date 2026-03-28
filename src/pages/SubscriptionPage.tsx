@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import {
   User, Users, ChefHat, Truck, Heart, ArrowLeft, Loader2,
@@ -89,6 +90,10 @@ export default function SubscriptionPage() {
 
   return (
     <div className="min-h-screen bg-moroccan-cream">
+      <Helmet>
+        <title>Abonnement Repas Marocains | BledCrate - Livraison Hebdomadaire Montréal</title>
+        <meta name="description" content="Abonnez-vous à BledCrate et recevez vos repas marocains authentiques chaque semaine. Livraison gratuite dans le Grand Montréal. Halal, fait maison." />
+      </Helmet>
       {/* Top Banner */}
       {settings?.delivery_banner_enabled === 'true' && (
         <div className="bg-moroccan-red text-white text-center py-2 text-sm font-semibold">

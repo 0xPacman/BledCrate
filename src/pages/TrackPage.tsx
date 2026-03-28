@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Search, Package, ChefHat, Truck, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,10 @@ export default function TrackPage() {
 
   return (
     <div className="min-h-screen bg-moroccan-cream">
+      <Helmet>
+        <title>Suivi de Commande | BledCrate - Repas Marocains Montréal</title>
+        <meta name="description" content="Suivez votre commande BledCrate en temps réel. Entrez votre code de suivi pour voir le statut de votre livraison de repas marocains." />
+      </Helmet>
       {/* Nav */}
       <nav className="bg-white/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -72,9 +77,9 @@ export default function TrackPage() {
             type="text"
             value={code}
             onChange={e => setCode(e.target.value.toUpperCase())}
-            placeholder="Ex: AB1C2D"
-            maxLength={8}
-            className="flex-1 border-2 border-moroccan-brown/20 rounded-xl px-5 py-4 text-xl font-mono font-bold text-moroccan-brown text-center tracking-widest focus:outline-none focus:border-moroccan-red bg-white uppercase"
+            placeholder="BC-XXXXXX"
+            maxLength={9}
+            className="flex-1 border-2 border-moroccan-brown/20 rounded-xl px-5 py-4 text-lg sm:text-xl font-mono font-bold text-moroccan-brown text-center tracking-wider focus:outline-none focus:border-moroccan-red bg-white uppercase"
           />
           <Button
             type="submit"
