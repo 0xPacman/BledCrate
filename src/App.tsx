@@ -362,11 +362,19 @@ function App() {
   const subPlatsCount = Object.values(subPlats).reduce((s, v) => s + v.qty, 0);
   const subExtrasCount = Object.values(subExtras).reduce((s, v) => s + v.qty, 0);
   const subExtrasTotal = Object.values(subExtras).reduce((s, v) => s + v.item.price * v.qty, 0);
-  const subMonthlySubtotal = (subSelectedPlan?.monthly_price || 0) + (subExtrasMode === 'recurring' ? subExtrasTotal * 4 : 0);
+  const subIsWeekly = (subSelectedPlan?.billing_interval === 'week' || subSelectedPlan?.billing_interval === 'weekly');
+  const subDeliveriesPerPeriod = subIsWeekly ? 1 : 4;
+  const subPeriodLabel = subIsWeekly ? 'sem' : 'mois';
+  const subPeriodLabelFull = subIsWeekly ? 'hebdomadaire' : 'mensuel';
+  const subRecurringSubtotal = (subSelectedPlan?.monthly_price || 0) + (subExtrasMode === 'recurring' ? subExtrasTotal * subDeliveriesPerPeriod : 0);
   const subFirstOrderExtras = subExtrasMode === 'onetime' ? subExtrasTotal : 0;
-  const subMonthlyTax = Math.round(subMonthlySubtotal * 0.15 * 100) / 100;
-  const subOnetimeTax = Math.round(subFirstOrderExtras * 0.15 * 100) / 100;
-  const subMonthlyTotal = Math.round((subMonthlySubtotal + subMonthlyTax) * 100) / 100;
+  const subRecurringTps = Math.round(subRecurringSubtotal * 0.05 * 100) / 100;
+  const subRecurringTvq = Math.round(subRecurringSubtotal * 0.09975 * 100) / 100;
+  const subRecurringTax = Math.round((subRecurringTps + subRecurringTvq) * 100) / 100;
+  const subOnetimeTps = Math.round(subFirstOrderExtras * 0.05 * 100) / 100;
+  const subOnetimeTvq = Math.round(subFirstOrderExtras * 0.09975 * 100) / 100;
+  const subOnetimeTax = Math.round((subOnetimeTps + subOnetimeTvq) * 100) / 100;
+  const subRecurringTotal = Math.round((subRecurringSubtotal + subRecurringTax) * 100) / 100;
   const subFirstOrderTotal = Math.round((subFirstOrderExtras + subOnetimeTax) * 100) / 100;
 
   const toggleSubPlat = (item: MenuItem) => {
@@ -1000,51 +1008,6 @@ function App() {
                 </div>
               )}
 
-              {/* Sticky bottom navigation bar for one-time flow — always visible */}
-              <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t shadow-lg z-50 px-3 sm:px-4 py-2.5 sm:py-3">
-                <div className="max-w-4xl mx-auto flex justify-between items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (onetimeStep === 'review') { setOnetimeStep('dessert'); scrollToSection('menu'); }
-                      else if (currentOnetimeIdx === 0) resetPurchaseFlow();
-                      else { setOnetimeStep(onetimeSteps[currentOnetimeIdx - 1]); scrollToSection('menu'); }
-                    }}
-                    className="border-moroccan-brown/20 text-moroccan-brown shrink-0"
-                  >
-                    <ChevronLeft className="w-4 h-4 sm:mr-1" />
-                    <span className="hidden sm:inline">{currentOnetimeIdx === 0 && onetimeStep !== 'review' ? 'Retour' : 'Précédent'}</span>
-                  </Button>
-                  <span className="text-xs sm:text-sm font-medium text-moroccan-brown/60 text-center truncate">
-                    {onetimeStep === 'review'
-                      ? `${Object.keys(onetimeSelections).length} plat${Object.keys(onetimeSelections).length > 1 ? 's' : ''}`
-                      : `${onetimeCategoryCount(onetimeStep)} sélectionné${onetimeCategoryCount(onetimeStep) > 1 ? 's' : ''}`}
-                  </span>
-                  {onetimeStep !== 'review' ? (
-                    <Button
-                      size="sm"
-                      onClick={() => { setOnetimeStep(onetimeSteps[currentOnetimeIdx + 1]); scrollToSection('menu'); }}
-                      className="bg-moroccan-red hover:bg-moroccan-red-dark text-white shrink-0"
-                    >
-                      Suivant
-                      <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      onClick={addOnetimeToCart}
-                      disabled={Object.keys(onetimeSelections).length === 0}
-                      className="bg-moroccan-red hover:bg-moroccan-red-dark text-white shrink-0"
-                    >
-                      <ShoppingCart className="w-4 h-4 sm:mr-1" />
-                      <span className="hidden sm:inline">Ajouter au Panier</span>
-                      <span className="sm:hidden">Panier</span>
-                    </Button>
-                  )}
-                </div>
-              </div>
-
               {/* Review Step */}
               {onetimeStep === 'review' && (
                 <div className="max-w-2xl mx-auto pb-16">
@@ -1392,57 +1355,6 @@ function App() {
                 </div>
               )}
 
-              {/* Sticky bottom navigation bar for subscription flow — always visible */}
-              <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t shadow-lg z-50 px-3 sm:px-4 py-2.5 sm:py-3">
-                <div className="max-w-4xl mx-auto flex justify-between items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (subStep === 'review') { setSubStep('extras'); scrollToSection('menu'); }
-                      else if (subStep === 'meals') resetPurchaseFlow();
-                      else { setSubStep(subStep === 'plats' ? 'meals' : 'plats'); scrollToSection('menu'); }
-                    }}
-                    className="border-moroccan-brown/20 text-moroccan-brown shrink-0"
-                  >
-                    <ChevronLeft className="w-4 h-4 sm:mr-1" />
-                    <span className="hidden sm:inline">{subStep === 'meals' ? 'Retour' : 'Précédent'}</span>
-                  </Button>
-                  <span className="text-xs sm:text-sm font-medium text-moroccan-brown/60 text-center truncate">
-                    {subStep === 'meals' && subSelectedPlan ? `${subSelectedPlan.meals_per_week} repas/sem` : ''}
-                    {subStep === 'plats' ? `${subPlatsCount} plat${subPlatsCount > 1 ? 's' : ''}` : ''}
-                    {subStep === 'extras' ? `${subExtrasCount} extra${subExtrasCount > 1 ? 's' : ''}` : ''}
-                    {subStep === 'review' ? `${subMonthlyTotal.toFixed(2)} $/mois` : ''}
-                  </span>
-                  {subStep !== 'review' ? (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        if (subStep === 'meals' && subSelectedPlan) { setSubStep('plats'); scrollToSection('menu'); }
-                        else if (subStep === 'plats') { setSubStep('extras'); scrollToSection('menu'); }
-                        else if (subStep === 'extras') { setSubStep('review'); scrollToSection('menu'); }
-                      }}
-                      disabled={subStep === 'meals' ? !subSelectedPlan : subStep === 'plats' ? subPlatsCount < (subSelectedPlan?.meals_per_week || 1) : false}
-                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown shrink-0"
-                    >
-                      <span className="hidden sm:inline">{subStep === 'meals' ? 'Choisir mes plats' : subStep === 'plats' ? (subPlatsCount < (subSelectedPlan?.meals_per_week || 1) ? `${subPlatsCount}/${subSelectedPlan?.meals_per_week} plats` : 'Extras') : subExtrasCount > 0 ? 'Récapitulatif' : 'Passer'}</span>
-                      <span className="sm:hidden">{subStep === 'meals' ? 'Suivant' : subStep === 'plats' ? (subPlatsCount < (subSelectedPlan?.meals_per_week || 1) ? `${subPlatsCount}/${subSelectedPlan?.meals_per_week}` : 'Extras') : 'Suivant'}</span>
-                      <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      onClick={() => setSubCheckoutOpen(true)}
-                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown shrink-0"
-                    >
-                      <CalendarCheck className="w-4 h-4 sm:mr-1" />
-                      <span className="hidden sm:inline">S'abonner</span>
-                      <span className="sm:hidden">S'abonner</span>
-                    </Button>
-                  )}
-                  </div>
-                </div>
-
               {/* Step 4: Review & Subscribe */}
               {subStep === 'review' && subSelectedPlan && (
                 <div className="max-w-2xl mx-auto pb-16">
@@ -1456,7 +1368,7 @@ function App() {
                     </div>
                     <div className="flex items-center justify-between text-sm text-moroccan-brown/60">
                       <span>{subSelectedPlan.price_per_meal.toFixed(2)} $ / repas</span>
-                      <span className="text-lg font-bold text-moroccan-red">{subSelectedPlan.monthly_price.toFixed(2)} $ / mois</span>
+                      <span className="text-lg font-bold text-moroccan-red">{subSelectedPlan.monthly_price.toFixed(2)} $ / {subPeriodLabel}</span>
                     </div>
                   </div>
 
@@ -1532,7 +1444,7 @@ function App() {
                               <CalendarCheck className="w-4 h-4 text-moroccan-gold shrink-0" />
                               <span className="text-sm font-semibold text-moroccan-brown">Chaque semaine</span>
                             </div>
-                            <p className="text-xs text-moroccan-brown/50">Ajoutés à chaque livraison (+{(subExtrasTotal * 4).toFixed(2)} $/mois)</p>
+                            <p className="text-xs text-moroccan-brown/50">Ajoutés à chaque livraison (+{(subExtrasTotal * subDeliveriesPerPeriod).toFixed(2)} $/{subPeriodLabel})</p>
                           </button>
                         </div>
                       </div>
@@ -1548,8 +1460,8 @@ function App() {
                       </div>
                       {subExtrasCount > 0 && subExtrasMode === 'recurring' && (
                         <div className="flex justify-between items-center text-sm text-moroccan-brown/60">
-                          <span>Extras ({subExtrasCount}) x4 sem</span>
-                          <span>+{(subExtrasTotal * 4).toFixed(2)} $</span>
+                          <span>Extras ({subExtrasCount}) x{subDeliveriesPerPeriod} {subIsWeekly ? 'sem' : 'sem'}</span>
+                          <span>+{(subExtrasTotal * subDeliveriesPerPeriod).toFixed(2)} $</span>
                         </div>
                       )}
                       {subExtrasCount > 0 && subExtrasMode === 'onetime' && (
@@ -1559,12 +1471,12 @@ function App() {
                         </div>
                       )}
                       <div className="flex justify-between items-center text-xs text-moroccan-brown/50">
-                        <span>Taxes (TPS + TVQ 15%)</span>
-                        <span>+{subMonthlyTax.toFixed(2)} $</span>
+                        <span>TPS (5%): {subRecurringTps.toFixed(2)} $ + TVQ (9.975%): {subRecurringTvq.toFixed(2)} $</span>
+                        <span>+{subRecurringTax.toFixed(2)} $</span>
                       </div>
                       <div className="border-t border-moroccan-brown/10 pt-2 flex justify-between items-center">
-                        <span className="text-moroccan-brown font-medium">Total mensuel</span>
-                        <span className="text-2xl font-bold text-moroccan-red">{subMonthlyTotal.toFixed(2)} $ / mois</span>
+                        <span className="text-moroccan-brown font-medium">Total {subPeriodLabelFull}</span>
+                        <span className="text-2xl font-bold text-moroccan-red">{subRecurringTotal.toFixed(2)} $ / {subPeriodLabel}</span>
                       </div>
                       {subFirstOrderExtras > 0 && (
                         <p className="text-xs text-moroccan-orange text-right">+ {subFirstOrderTotal.toFixed(2)} $ d'extras à la 1re livraison (taxes incl.)</p>
@@ -1585,6 +1497,106 @@ function App() {
           )}
         </div>
       </section>
+
+      {/* Sticky bottom navigation bar for one-time flow — outside section to avoid stacking context */}
+      {purchaseMode === 'onetime' && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t shadow-lg z-[90] px-3 sm:px-4 py-2.5 sm:py-3">
+          <div className="max-w-4xl mx-auto flex justify-between items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (onetimeStep === 'review') { setOnetimeStep('dessert'); scrollToSection('menu'); }
+                else if (currentOnetimeIdx === 0) resetPurchaseFlow();
+                else { setOnetimeStep(onetimeSteps[currentOnetimeIdx - 1]); scrollToSection('menu'); }
+              }}
+              className="border-moroccan-brown/20 text-moroccan-brown shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4 sm:mr-1" />
+              <span className="hidden sm:inline">{currentOnetimeIdx === 0 && onetimeStep !== 'review' ? 'Retour' : 'Précédent'}</span>
+            </Button>
+            <span className="text-xs sm:text-sm font-medium text-moroccan-brown/60 text-center truncate">
+              {onetimeStep === 'review'
+                ? `${Object.keys(onetimeSelections).length} plat${Object.keys(onetimeSelections).length > 1 ? 's' : ''}`
+                : `${onetimeCategoryCount(onetimeStep)} sélectionné${onetimeCategoryCount(onetimeStep) > 1 ? 's' : ''}`}
+            </span>
+            {onetimeStep !== 'review' ? (
+              <Button
+                size="sm"
+                onClick={() => { setOnetimeStep(onetimeSteps[currentOnetimeIdx + 1]); scrollToSection('menu'); }}
+                className="bg-moroccan-red hover:bg-moroccan-red-dark text-white shrink-0"
+              >
+                Suivant
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={addOnetimeToCart}
+                disabled={Object.keys(onetimeSelections).length === 0}
+                className="bg-moroccan-red hover:bg-moroccan-red-dark text-white shrink-0"
+              >
+                <ShoppingCart className="w-4 h-4 sm:mr-1" />
+                <span className="hidden sm:inline">Ajouter au Panier</span>
+                <span className="sm:hidden">Panier</span>
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sticky bottom navigation bar for subscription flow — outside section to avoid stacking context */}
+      {purchaseMode === 'subscription' && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t shadow-lg z-[90] px-3 sm:px-4 py-2.5 sm:py-3">
+          <div className="max-w-4xl mx-auto flex justify-between items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (subStep === 'review') { setSubStep('extras'); scrollToSection('menu'); }
+                else if (subStep === 'meals') resetPurchaseFlow();
+                else { setSubStep(subStep === 'plats' ? 'meals' : 'plats'); scrollToSection('menu'); }
+              }}
+              className="border-moroccan-brown/20 text-moroccan-brown shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4 sm:mr-1" />
+              <span className="hidden sm:inline">{subStep === 'meals' ? 'Retour' : 'Précédent'}</span>
+            </Button>
+            <span className="text-xs sm:text-sm font-medium text-moroccan-brown/60 text-center truncate">
+              {subStep === 'meals' && subSelectedPlan ? `${subSelectedPlan.meals_per_week} repas/sem` : ''}
+              {subStep === 'plats' ? `${subPlatsCount} plat${subPlatsCount > 1 ? 's' : ''}` : ''}
+              {subStep === 'extras' ? `${subExtrasCount} extra${subExtrasCount > 1 ? 's' : ''}` : ''}
+              {subStep === 'review' ? `${subRecurringTotal.toFixed(2)} $/${subPeriodLabel}` : ''}
+            </span>
+            {subStep !== 'review' ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (subStep === 'meals' && subSelectedPlan) { setSubStep('plats'); scrollToSection('menu'); }
+                  else if (subStep === 'plats') { setSubStep('extras'); scrollToSection('menu'); }
+                  else if (subStep === 'extras') { setSubStep('review'); scrollToSection('menu'); }
+                }}
+                disabled={subStep === 'meals' ? !subSelectedPlan : subStep === 'plats' ? subPlatsCount < (subSelectedPlan?.meals_per_week || 1) : false}
+                className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown shrink-0"
+              >
+                <span className="hidden sm:inline">{subStep === 'meals' ? 'Choisir mes plats' : subStep === 'plats' ? (subPlatsCount < (subSelectedPlan?.meals_per_week || 1) ? `${subPlatsCount}/${subSelectedPlan?.meals_per_week} plats` : 'Extras') : subExtrasCount > 0 ? 'Récapitulatif' : 'Passer'}</span>
+                <span className="sm:hidden">{subStep === 'meals' ? 'Suivant' : subStep === 'plats' ? (subPlatsCount < (subSelectedPlan?.meals_per_week || 1) ? `${subPlatsCount}/${subSelectedPlan?.meals_per_week}` : 'Extras') : 'Suivant'}</span>
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => setSubCheckoutOpen(true)}
+                className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown shrink-0"
+              >
+                <CalendarCheck className="w-4 h-4 sm:mr-1" />
+                <span className="hidden sm:inline">S'abonner</span>
+                <span className="sm:hidden">S'abonner</span>
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* How It Works Section */}
       <section id="how-it-works" className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 bg-moroccan-brown text-white relative overflow-hidden">
@@ -1848,17 +1860,17 @@ function App() {
                       Extras ({subExtrasCount}) — {subExtrasMode === 'recurring' ? 'chaque semaine' : '1re livraison'}
                     </span>
                     <span className="text-moroccan-brown/60">
-                      {subExtrasMode === 'recurring' ? `+${(subExtrasTotal * 4).toFixed(2)} $` : `+${subExtrasTotal.toFixed(2)} $ (1x)`}
+                      {subExtrasMode === 'recurring' ? `+${(subExtrasTotal * subDeliveriesPerPeriod).toFixed(2)} $` : `+${subExtrasTotal.toFixed(2)} $ (1x)`}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between items-center text-xs text-moroccan-brown/50">
-                  <span>Taxes (TPS + TVQ 15%)</span>
-                  <span>+{subMonthlyTax.toFixed(2)} $</span>
+                  <span>TPS (5%): {subRecurringTps.toFixed(2)} $ + TVQ (9.975%): {subRecurringTvq.toFixed(2)} $</span>
+                  <span>+{subRecurringTax.toFixed(2)} $</span>
                 </div>
                 <div className="pt-2 border-t border-moroccan-brown/10 flex justify-between items-center">
-                  <span className="font-semibold text-moroccan-brown text-sm">Total mensuel</span>
-                  <span className="text-xl font-bold text-moroccan-red">{subMonthlyTotal.toFixed(2)} $ / mois</span>
+                  <span className="font-semibold text-moroccan-brown text-sm">Total {subPeriodLabelFull}</span>
+                  <span className="text-xl font-bold text-moroccan-red">{subRecurringTotal.toFixed(2)} $ / {subPeriodLabel}</span>
                 </div>
                 {subFirstOrderExtras > 0 && (
                   <p className="text-xs text-moroccan-orange text-right">+ {subFirstOrderTotal.toFixed(2)} $ d'extras à la 1re livraison (taxes incl.)</p>
@@ -1940,7 +1952,7 @@ function App() {
               {subSubmitting ? (
                 <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-moroccan-brown/30 border-t-moroccan-brown rounded-full animate-spin" /> Redirection...</span>
               ) : (
-                <span className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> S'abonner — {subMonthlyTotal.toFixed(2)} $ / mois{subFirstOrderExtras > 0 ? ` + ${subFirstOrderTotal.toFixed(2)} $` : ''}</span>
+                <span className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> S'abonner — {subRecurringTotal.toFixed(2)} $ / {subPeriodLabel}{subFirstOrderExtras > 0 ? ` + ${subFirstOrderTotal.toFixed(2)} $` : ''}</span>
               )}
             </Button>
             <div className="flex items-center justify-center gap-4 text-xs text-moroccan-brown/40">
