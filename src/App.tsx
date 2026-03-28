@@ -27,6 +27,11 @@ import {
   Salad,
   CakeSlice,
   ArrowRight,
+  User,
+  CreditCard,
+  Shield,
+  Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -37,7 +42,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast, Toaster } from 'sonner';
 import menuData from '@/data/menu.json';
-import { fetchProducts as apiFetchProducts, createCheckout, validatePromo, fetchPublicSettings, fetchSubscriptionPlans, createSubscription } from '@/lib/api';
+import { fetchProducts as apiFetchProducts, createCheckout, validatePromo, fetchPublicSettings, fetchSubscriptionPlans, createSubscription, fetchPublicReviews } from '@/lib/api';
+import type { Review } from '@/lib/api';
 import type { SiteSettings, SubscriptionPlan } from '@/lib/api';
 import './App.css';
 
@@ -78,7 +84,10 @@ interface CustomerInfo {
 }
 
 function App() {
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try { const saved = localStorage.getItem('bledcrate_cart'); return saved ? JSON.parse(saved) : []; }
+    catch { return []; }
+  });
   const [isScrolled, setIsScrolled] = useState(false);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null);
@@ -89,6 +98,7 @@ function App() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(fallbackMenuItems);
   const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
 
   // Purchase flow state
   type PurchaseMode = null | 'onetime' | 'subscription';
@@ -100,12 +110,14 @@ function App() {
   const [onetimeSelections, setOnetimeSelections] = useState<Record<string, { item: MenuItem; qty: number; variant?: Variant }>>({});
   const [subMealCount, setSubMealCount] = useState<number>(0);
   const [subSelectedPlan, setSubSelectedPlan] = useState<SubscriptionPlan | null>(null);
+  const [subBillingInterval, setSubBillingInterval] = useState<'weekly' | 'monthly'>('monthly');
   const [subPlats, setSubPlats] = useState<Record<string, { item: MenuItem; qty: number }>>({});
   const [subExtras, setSubExtras] = useState<Record<string, { item: MenuItem; qty: number; category: string }>>({});
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
   const [subCheckoutOpen, setSubCheckoutOpen] = useState(false);
-  const [subCustomerInfo, setSubCustomerInfo] = useState({ name: '', email: '', phone: '', address: '' });
+  const [subCustomerInfo, setSubCustomerInfo] = useState({ name: '', email: '', phone: '', address: '', notes: '' });
   const [subSubmitting, setSubSubmitting] = useState(false);
+  const [subExtrasMode, setSubExtrasMode] = useState<'recurring' | 'onetime'>('onetime');
 
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     name: '',
@@ -115,6 +127,11 @@ function App() {
     notes: '',
     promoCode: '',
   });
+
+  // Persist cart to localStorage
+  useEffect(() => {
+    localStorage.setItem('bledcrate_cart', JSON.stringify(cart));
+  }, [cart]);
 
   // Load products from API (fallback to JSON) + settings
   useEffect(() => {
@@ -129,6 +146,9 @@ function App() {
       .catch(() => { /* use defaults */ });
     fetchSubscriptionPlans()
       .then(p => setSubscriptionPlans(p))
+      .catch(() => {});
+    fetchPublicReviews()
+      .then(r => setReviews(r))
       .catch(() => {});
   }, []);
 
@@ -337,6 +357,13 @@ function App() {
 
   const subPlatsCount = Object.values(subPlats).reduce((s, v) => s + v.qty, 0);
   const subExtrasCount = Object.values(subExtras).reduce((s, v) => s + v.qty, 0);
+  const subExtrasTotal = Object.values(subExtras).reduce((s, v) => s + v.item.price * v.qty, 0);
+  const subMonthlySubtotal = (subSelectedPlan?.monthly_price || 0) + (subExtrasMode === 'recurring' ? subExtrasTotal * 4 : 0);
+  const subFirstOrderExtras = subExtrasMode === 'onetime' ? subExtrasTotal : 0;
+  const subMonthlyTax = Math.round(subMonthlySubtotal * 0.15 * 100) / 100;
+  const subOnetimeTax = Math.round(subFirstOrderExtras * 0.15 * 100) / 100;
+  const subMonthlyTotal = Math.round((subMonthlySubtotal + subMonthlyTax) * 100) / 100;
+  const subFirstOrderTotal = Math.round((subFirstOrderExtras + subOnetimeTax) * 100) / 100;
 
   const toggleSubPlat = (item: MenuItem) => {
     setSubPlats(prev => {
@@ -399,7 +426,17 @@ function App() {
     }
     setSubSubmitting(true);
     try {
-      const { url } = await createSubscription({ plan_id: subSelectedPlan.id, customer: subCustomerInfo });
+      const { url } = await createSubscription({
+        plan_id: subSelectedPlan.id,
+        customer: subCustomerInfo,
+        extras: subExtrasCount > 0 ? Object.values(subExtras).map(v => ({
+          name: v.item.name,
+          qty: v.qty,
+          price: v.item.price,
+          category: v.category,
+        })) : undefined,
+        extras_mode: subExtrasCount > 0 ? subExtrasMode : undefined,
+      });
       if (!url) {
         toast.error('Erreur lors de la création de la session de paiement.');
         return;
@@ -407,7 +444,8 @@ function App() {
       localStorage.setItem('bledcrate_sub_selections', JSON.stringify({
         plan: subSelectedPlan,
         plats: Object.values(subPlats).map(v => ({ name: v.item.name, qty: v.qty })),
-        extras: Object.values(subExtras).map(v => ({ name: v.item.name, qty: v.qty, category: v.category })),
+        extras: Object.values(subExtras).map(v => ({ name: v.item.name, qty: v.qty, price: v.item.price, category: v.category })),
+        extras_mode: subExtrasMode,
       }));
       window.location.href = url;
     } catch (err: any) {
@@ -431,6 +469,7 @@ function App() {
     setSubSelectedPlan(null);
     setSubPlats({});
     setSubExtras({});
+    setSubExtrasMode('onetime');
   };
 
   // Box settings from admin
@@ -442,7 +481,7 @@ function App() {
     <div className="min-h-screen bg-moroccan-cream">
       {/* Navigation */}
       <nav className={`fixed left-0 right-0 z-50 transition-all duration-500 ${
-        siteSettings?.delivery_banner_enabled === 'true' ? 'top-[36px]' : 'top-0'
+        siteSettings?.delivery_banner_enabled === 'true' ? 'top-[32px]' : 'top-0'
       } ${
         isScrolled
           ? 'glass shadow-lg py-2'
@@ -470,30 +509,23 @@ function App() {
 
             {/* Desktop Nav */}
             <div className="hidden md:flex items-center gap-8">
-              {['Nos Plats', 'Comment Ça Marche', 'Avis'].map((item, idx) => (
+              {[
+                { label: 'Nos Plats', action: () => scrollToSection('menu') },
+                { label: 'Processus', action: () => scrollToSection('how-it-works') },
+                { label: 'Track', action: () => window.location.href = '/track', isLink: true },
+                { label: 'Politique', action: () => window.location.href = '/politique', isLink: true },
+              ].map((item) => (
                 <button
-                  key={item}
-                  onClick={() => scrollToSection(['menu', 'how-it-works', 'testimonials'][idx])}
+                  key={item.label}
+                  onClick={item.action}
                   className={`font-medium text-sm hover:text-moroccan-red transition-colors relative group ${
                     isScrolled ? 'text-moroccan-brown' : 'text-white'
                   }`}
                 >
-                  {item}
+                  {item.label}
                   <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-moroccan-red transition-all group-hover:w-full" />
                 </button>
               ))}
-              {siteSettings?.subscription_enabled === 'true' && (
-                <Link
-                  to="/abonnement"
-                  className={`font-medium text-sm hover:text-moroccan-red transition-colors relative group flex items-center gap-1 ${
-                    isScrolled ? 'text-moroccan-brown' : 'text-white'
-                  }`}
-                >
-                  <Package className="w-4 h-4" />
-                  Abonnement
-                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-moroccan-red transition-all group-hover:w-full" />
-                </Link>
-              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -509,14 +541,14 @@ function App() {
                   )}
                 </button>
               </SheetTrigger>
-              <SheetContent className="w-full sm:max-w-md bg-moroccan-cream">
-                <SheetHeader>
-                  <SheetTitle className="font-display text-3xl text-moroccan-brown flex items-center gap-2">
+              <SheetContent className="w-full sm:max-w-md bg-moroccan-cream flex flex-col overflow-hidden">
+                <SheetHeader className="shrink-0">
+                  <SheetTitle className="font-display text-3xl text-moroccan-brown flex items-center gap-2 pr-8">
                     <ShoppingCart className="w-6 h-6" />
                     Votre Panier
                   </SheetTitle>
                 </SheetHeader>
-                <ScrollArea className="h-[calc(100vh-200px)] mt-6">
+                <ScrollArea className="flex-1 -mx-4 px-4 pb-4">{/* negative margin to allow full-width scroll */}
                   {cart.length === 0 ? (
                     <div className="text-center py-12">
                       <ShoppingCart className="w-16 h-16 text-moroccan-brown/30 mx-auto mb-4" />
@@ -564,7 +596,7 @@ function App() {
                   )}
                 </ScrollArea>
                 {cart.length > 0 && (
-                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t space-y-2">
+                  <div className="shrink-0 p-4 bg-white border-t space-y-2 -mx-4 -mb-4">{/* shrink-0 keeps footer visible */}
                     {/* Bundle progress */}
                     {bundleEnabled && !qualifiesForBundle && cartCount > 0 && (
                       <div className="bg-orange-50 rounded-lg p-2.5 text-xs">
@@ -636,13 +668,12 @@ function App() {
             <div className="md:hidden mt-4 pb-4 animate-slide-up">
               <div className={`flex flex-col gap-2 ${isScrolled ? 'bg-white/90' : 'bg-black/40'} backdrop-blur-sm rounded-xl p-4`}>
                 {[
-                  { label: 'Nos Plats', id: 'menu' },
-                  { label: 'Comment Ça Marche', id: 'how-it-works' },
-                  { label: 'Avis', id: 'testimonials' },
+                  { label: 'Nos Plats', action: () => { scrollToSection('menu'); setMobileMenuOpen(false); } },
+                  { label: 'Processus', action: () => { scrollToSection('how-it-works'); setMobileMenuOpen(false); } },
                 ].map((item) => (
                   <button
-                    key={item.id}
-                    onClick={() => { scrollToSection(item.id); setMobileMenuOpen(false); }}
+                    key={item.label}
+                    onClick={item.action}
                     className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
                       isScrolled
                         ? 'text-moroccan-brown hover:bg-moroccan-red/10 hover:text-moroccan-red'
@@ -653,23 +684,18 @@ function App() {
                     <ChevronRight className="w-4 h-4 opacity-50" />
                   </button>
                 ))}
-                {siteSettings?.subscription_enabled === 'true' && (
-                  <Link
-                    to="/abonnement"
-                    className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
-                      isScrolled
-                        ? 'text-moroccan-red bg-moroccan-red/10 hover:bg-moroccan-red/20'
-                        : 'text-moroccan-gold hover:bg-white/10'
-                    }`}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Package className="w-4 h-4" />
-                      Abonnement
-                    </span>
-                    <ChevronRight className="w-4 h-4 opacity-50" />
-                  </Link>
-                )}
+                <Link
+                  to="/track"
+                  className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                    isScrolled
+                      ? 'text-moroccan-brown hover:bg-moroccan-red/10 hover:text-moroccan-red'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Track
+                  <ChevronRight className="w-4 h-4 opacity-50" />
+                </Link>
                 <Link
                   to="/politique"
                   className={`flex items-center justify-between px-4 py-3 rounded-lg text-left font-medium transition-colors ${
@@ -688,23 +714,21 @@ function App() {
         </div>
       </nav>
 
-      {/* Delivery Banner */}
+      {/* Delivery Schedule Banner */}
       {siteSettings?.delivery_banner_enabled === 'true' && (
-        <div className="fixed top-0 left-0 right-0 z-[60] bg-moroccan-red text-white text-center py-2 text-sm font-semibold shadow-md">
-          <div className="flex items-center justify-center gap-2">
-            <Truck className="w-4 h-4" />
-            <span>
-              Livraison GRATUITE sur les commandes de {parseFloat(siteSettings.free_delivery_threshold || '75').toFixed(0)} $+
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-moroccan-brown text-white text-center py-2 text-xs sm:text-sm font-medium shadow-md">
+          <div className="flex items-center justify-center gap-1.5 sm:gap-3 px-3">
+            <Truck className="w-3.5 h-3.5 shrink-0 text-moroccan-gold" />
+            <span className="hidden sm:inline">
+              Dim–Mer → livraison Samedi
+              <span className="mx-2 text-moroccan-gold/50">|</span>
+              Jeu–Sam → livraison Mercredi
             </span>
-            {bundleEnabled && (
-              <>
-                <span className="mx-2 opacity-50">|</span>
-                <Package className="w-4 h-4" />
-                <span>
-                  {bundleDiscountPercent}% de réduction sur {bundleMinItems}+ plats
-                </span>
-              </>
-            )}
+            <span className="sm:hidden">
+              Dim–Mer → Sam
+              <span className="mx-1.5 text-moroccan-gold/50">|</span>
+              Jeu–Sam → Mer
+            </span>
           </div>
         </div>
       )}
@@ -713,115 +737,77 @@ function App() {
       <section id="hero" className="relative min-h-screen flex items-center justify-center overflow-hidden">
         {/* Background Image */}
         <div className="absolute inset-0">
-          <img 
-            src="/hero-moroccan.jpg" 
-            alt="Cuisine Marocaine" 
+          <img
+            src="/hero-moroccan.jpg"
+            alt="Cuisine Marocaine"
             className="w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-moroccan-cream" />
-        </div>
-
-        {/* Zellige Corner Decorations */}
-        <div className="absolute top-0 left-0 w-32 h-32 opacity-60">
-          <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-br-full" />
-        </div>
-        <div className="absolute top-0 right-0 w-32 h-32 opacity-60">
-          <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-bl-full" />
-        </div>
-
-        {/* Steam Particles */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          {[...Array(6)].map((_, i) => (
-            <div
-              key={i}
-              className="steam-particle animate-steam"
-              style={{
-                left: `${20 + i * 15}%`,
-                bottom: `${10 + (i % 3) * 5}%`,
-                animationDelay: `${i * 0.5}s`,
-                width: `${10 + i * 3}px`,
-                height: `${10 + i * 3}px`,
-              }}
-            />
-          ))}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-moroccan-cream" />
         </div>
 
         {/* Content */}
-        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto">
+        <div className="relative z-10 text-center px-5 max-w-3xl mx-auto pt-16 sm:pt-0">
           <div className="animate-fade-in">
-            <Badge className="bg-moroccan-red/90 text-white mb-6 text-sm px-4 py-2">
-              <span className="mr-1">🍲</span>
+            <Badge className="bg-white/15 backdrop-blur-sm text-white mb-6 text-sm px-5 py-2 border border-white/20">
+              <span className="mr-1.5">🍲</span>
               Cuisine Authentique du Maroc
             </Badge>
           </div>
-          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl text-white text-shadow-lg mb-6 animate-slide-up">
+          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl text-white mb-5 animate-slide-up" style={{ textShadow: '0 2px 20px rgba(0,0,0,0.3)' }}>
             BledCrate
             <br />
             <span className="text-moroccan-gold">Saveurs Royales</span>
           </h1>
-          <p className="text-lg sm:text-xl text-white/90 mb-4 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '0.2s' }}>
-            Découvrez l'authenticité de la cuisine marocaine avec nos meal boxes
-            préparées avec amour et livrées à région du Grand Montréal
+          <p className="text-base sm:text-lg text-white/85 mb-8 max-w-xl mx-auto leading-relaxed animate-slide-up" style={{ animationDelay: '0.2s' }}>
+            Des meal boxes marocaines authentiques, préparées avec amour et livrées dans le Grand Montréal
           </p>
-          <div className="flex items-center justify-center gap-6 text-white/70 text-sm mb-8 animate-slide-up" style={{ animationDelay: '0.3s' }}>
-            <span className="flex items-center gap-1"><Truck className="w-4 h-4" /> Livraison rapide</span>
-            <span className="flex items-center gap-1"><ChefHat className="w-4 h-4" /> Fait maison</span>
-            <span className="flex items-center gap-1"><Heart className="w-4 h-4" /> 100% authentique</span>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center animate-slide-up" style={{ animationDelay: '0.4s' }}>
-            <Button 
+          <div className="flex flex-col sm:flex-row gap-3 justify-center animate-slide-up mb-10" style={{ animationDelay: '0.3s' }}>
+            <Button
               onClick={() => scrollToSection('menu')}
-              className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-6 text-lg font-semibold rounded-full btn-liquid animate-float"
+              className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-6 text-lg font-semibold rounded-full shadow-lg shadow-moroccan-red/30 transition-all hover:shadow-xl hover:scale-[1.02]"
             >
-              Découvrir Nos Box
-              <Menu className="w-5 h-5 ml-2" />
+              Commander
+              <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
-            <Button 
+            <Button
               variant="outline"
               onClick={() => scrollToSection('how-it-works')}
-              className="border-2 border-white text-white hover:bg-white hover:text-moroccan-brown px-8 py-6 text-lg font-semibold rounded-full bg-transparent"
+              className="border-2 border-white/40 text-white hover:bg-white hover:text-moroccan-brown px-8 py-6 text-lg font-semibold rounded-full bg-white/10 backdrop-blur-sm"
             >
-              Comment Ça Marche
+              Processus
             </Button>
+          </div>
+          <div className="flex items-center justify-center gap-4 sm:gap-8 animate-slide-up" style={{ animationDelay: '0.4s' }}>
+            {[
+              { icon: Truck, label: 'Livraison rapide' },
+              { icon: ChefHat, label: 'Fait maison' },
+              { icon: Heart, label: '100% authentique' },
+            ].map(({ icon: Icon, label }) => (
+              <span key={label} className="flex items-center gap-1.5 text-white/70 text-xs sm:text-sm">
+                <span className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                  <Icon className="w-3.5 h-3.5" />
+                </span>
+                {label}
+              </span>
+            ))}
           </div>
         </div>
 
         {/* Scroll Indicator */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
-          <div className="w-8 h-12 border-2 border-white/50 rounded-full flex justify-center pt-2">
-            <div className="w-1.5 h-3 bg-white/70 rounded-full" />
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 animate-bounce">
+          <div className="w-7 h-10 border-2 border-white/30 rounded-full flex justify-center pt-2">
+            <div className="w-1 h-2.5 bg-white/50 rounded-full" />
           </div>
         </div>
       </section>
 
       {/* Purchase Flow Section */}
-      <section id="menu" className="py-20 px-4 sm:px-6 lg:px-8 relative">
-        {/* Zellige Background Pattern */}
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0" style={{
-            backgroundImage: 'url(/zellige-pattern.jpg)',
-            backgroundSize: '200px 200px',
-            backgroundRepeat: 'repeat'
-          }} />
-        </div>
-        <div className="absolute top-0 left-0 right-0 h-4 overflow-hidden">
-          <div className="w-full h-full" style={{
-            backgroundImage: 'url(/zellige-pattern.jpg)',
-            backgroundSize: '100px 100%',
-            backgroundRepeat: 'repeat-x'
-          }} />
-        </div>
-
+      <section id="menu" className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 relative">
         <div className="max-w-7xl mx-auto relative z-10">
           {/* Section Header */}
-          <div className="text-center mb-16">
-            <div className="flex justify-center mb-4">
-              <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-moroccan-red shadow-lg">
-                <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover" />
-              </div>
-            </div>
-            <Badge className="bg-moroccan-orange text-white mb-4">
-              <Heart className="w-4 h-4 mr-1" />
+          <div className="text-center mb-12 sm:mb-16">
+            <Badge className="bg-moroccan-red/10 text-moroccan-red mb-4 border border-moroccan-red/20">
+              <Heart className="w-3.5 h-3.5 mr-1" />
               Notre Sélection
             </Badge>
             <h2 className="font-display text-5xl sm:text-6xl text-moroccan-brown mb-4">
@@ -914,10 +900,13 @@ function App() {
 
           {/* ═══ ONE-TIME PURCHASE: Meal Builder Wizard ═══ */}
           {purchaseMode === 'onetime' && (
-            <div>
+            <div className="pb-20">
               {/* Back button */}
-              <button onClick={resetPurchaseFlow} className="flex items-center gap-1 text-moroccan-brown/60 hover:text-moroccan-red mb-6 transition-colors">
-                <ChevronLeft className="w-4 h-4" /> Retour au choix
+              <button onClick={() => {
+                if (currentOnetimeIdx > 0) { setOnetimeStep(onetimeSteps[currentOnetimeIdx - 1]); scrollToSection('menu'); }
+                else resetPurchaseFlow();
+              }} className="flex items-center gap-1 text-moroccan-brown/60 hover:text-moroccan-red mb-6 transition-colors">
+                <ChevronLeft className="w-4 h-4" /> {currentOnetimeIdx > 0 ? 'Précédent' : 'Retour au choix'}
               </button>
 
               {/* Step Progress */}
@@ -1013,32 +1002,57 @@ function App() {
                   </div>
 
                   {/* Navigation Buttons */}
-                  <div className="flex justify-between mt-10">
+                </div>
+              )}
+
+              {/* Sticky bottom navigation bar for one-time flow — always visible */}
+              <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t shadow-lg z-50 px-3 sm:px-4 py-2.5 sm:py-3">
+                <div className="max-w-4xl mx-auto flex justify-between items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (onetimeStep === 'review') { setOnetimeStep('dessert'); scrollToSection('menu'); }
+                      else if (currentOnetimeIdx === 0) resetPurchaseFlow();
+                      else { setOnetimeStep(onetimeSteps[currentOnetimeIdx - 1]); scrollToSection('menu'); }
+                    }}
+                    className="border-moroccan-brown/20 text-moroccan-brown shrink-0"
+                  >
+                    <ChevronLeft className="w-4 h-4 sm:mr-1" />
+                    <span className="hidden sm:inline">{currentOnetimeIdx === 0 && onetimeStep !== 'review' ? 'Retour' : 'Précédent'}</span>
+                  </Button>
+                  <span className="text-xs sm:text-sm font-medium text-moroccan-brown/60 text-center truncate">
+                    {onetimeStep === 'review'
+                      ? `${Object.keys(onetimeSelections).length} plat${Object.keys(onetimeSelections).length > 1 ? 's' : ''}`
+                      : `${onetimeCategoryCount(onetimeStep)} sélectionné${onetimeCategoryCount(onetimeStep) > 1 ? 's' : ''}`}
+                  </span>
+                  {onetimeStep !== 'review' ? (
                     <Button
-                      variant="outline"
-                      onClick={() => {
-                        if (currentOnetimeIdx === 0) resetPurchaseFlow();
-                        else setOnetimeStep(onetimeSteps[currentOnetimeIdx - 1]);
-                      }}
-                      className="border-moroccan-brown/20 text-moroccan-brown"
-                    >
-                      <ChevronLeft className="w-4 h-4 mr-1" />
-                      {currentOnetimeIdx === 0 ? 'Retour' : 'Précédent'}
-                    </Button>
-                    <Button
-                      onClick={() => setOnetimeStep(onetimeSteps[currentOnetimeIdx + 1])}
-                      className="bg-moroccan-red hover:bg-moroccan-red-dark text-white"
+                      size="sm"
+                      onClick={() => { setOnetimeStep(onetimeSteps[currentOnetimeIdx + 1]); scrollToSection('menu'); }}
+                      className="bg-moroccan-red hover:bg-moroccan-red-dark text-white shrink-0"
                     >
                       Suivant
                       <ChevronRight className="w-4 h-4 ml-1" />
                     </Button>
-                  </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={addOnetimeToCart}
+                      disabled={Object.keys(onetimeSelections).length === 0}
+                      className="bg-moroccan-red hover:bg-moroccan-red-dark text-white shrink-0"
+                    >
+                      <ShoppingCart className="w-4 h-4 sm:mr-1" />
+                      <span className="hidden sm:inline">Ajouter au Panier</span>
+                      <span className="sm:hidden">Panier</span>
+                    </Button>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* Review Step */}
               {onetimeStep === 'review' && (
-                <div className="max-w-2xl mx-auto">
+                <div className="max-w-2xl mx-auto pb-16">
                   <h3 className="font-display text-2xl text-moroccan-brown mb-6 text-center">Récapitulatif de votre Box</h3>
 
                   {['entree', 'plat', 'dessert'].map(cat => {
@@ -1112,15 +1126,6 @@ function App() {
                     </div>
                   )}
 
-                  <div className="flex justify-between mt-6">
-                    <Button
-                      variant="outline"
-                      onClick={() => setOnetimeStep('dessert')}
-                      className="border-moroccan-brown/20 text-moroccan-brown"
-                    >
-                      <ChevronLeft className="w-4 h-4 mr-1" /> Modifier
-                    </Button>
-                  </div>
                 </div>
               )}
             </div>
@@ -1128,10 +1133,13 @@ function App() {
 
           {/* ═══ SUBSCRIPTION: Builder Wizard ═══ */}
           {purchaseMode === 'subscription' && (
-            <div>
+            <div className="pb-20">
               {/* Back button */}
-              <button onClick={resetPurchaseFlow} className="flex items-center gap-1 text-moroccan-brown/60 hover:text-moroccan-red mb-6 transition-colors">
-                <ChevronLeft className="w-4 h-4" /> Retour au choix
+              <button onClick={() => {
+                if (currentSubIdx > 0) { setSubStep(subSteps[currentSubIdx - 1]); scrollToSection('menu'); }
+                else resetPurchaseFlow();
+              }} className="flex items-center gap-1 text-moroccan-brown/60 hover:text-moroccan-red mb-6 transition-colors">
+                <ChevronLeft className="w-4 h-4" /> {currentSubIdx > 0 ? 'Précédent' : 'Retour au choix'}
               </button>
 
               {/* Step Progress */}
@@ -1162,8 +1170,33 @@ function App() {
               {subStep === 'meals' && (
                 <div className="max-w-3xl mx-auto">
                   <h3 className="font-display text-2xl text-moroccan-brown mb-8 text-center">Combien de repas par semaine ?</h3>
+                  {/* Billing interval toggle */}
+                  <div className="max-w-xs mx-auto mb-8">
+                    <div className="bg-white rounded-full border shadow-sm flex p-1">
+                      <button
+                        onClick={() => { setSubBillingInterval('weekly'); setSubSelectedPlan(null); }}
+                        className={`flex-1 py-2 px-4 rounded-full text-sm font-semibold transition-all ${
+                          subBillingInterval === 'weekly' ? 'bg-moroccan-red text-white shadow' : 'text-moroccan-brown/60 hover:text-moroccan-brown'
+                        }`}
+                      >
+                        Hebdomadaire
+                      </button>
+                      <button
+                        onClick={() => { setSubBillingInterval('monthly'); setSubSelectedPlan(null); }}
+                        className={`flex-1 py-2 px-4 rounded-full text-sm font-semibold transition-all ${
+                          subBillingInterval === 'monthly' ? 'bg-moroccan-red text-white shadow' : 'text-moroccan-brown/60 hover:text-moroccan-brown'
+                        }`}
+                      >
+                        Mensuel
+                      </button>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                    {(subscriptionPlans.length > 0 ? subscriptionPlans : boxSubMealCounts.map((n, i) => ({
+                    {(subscriptionPlans.length > 0 ? subscriptionPlans.filter(p => {
+                      const interval = p.billing_interval || 'month';
+                      if (subBillingInterval === 'weekly') return interval === 'week' || interval === 'weekly';
+                      return interval === 'month' || interval === 'monthly';
+                    }) : boxSubMealCounts.map((n, i) => ({
                       id: `default-${n}`,
                       plan_type: 'moi' as const,
                       name: `${n} repas`,
@@ -1195,7 +1228,7 @@ function App() {
                         <div className="font-display text-5xl text-moroccan-brown mb-2">{plan.meals_per_week}</div>
                         <p className="text-moroccan-brown/60 mb-4">repas / semaine</p>
                         <div className="text-2xl font-bold text-moroccan-red mb-1">{plan.price_per_meal.toFixed(2)} $ <span className="text-sm font-normal text-moroccan-brown/50">/ repas</span></div>
-                        <div className="text-sm text-moroccan-brown/60">{plan.monthly_price.toFixed(2)} $ / mois</div>
+                        <div className="text-sm text-moroccan-brown/60">{plan.monthly_price.toFixed(2)} $ / {subBillingInterval === 'weekly' ? 'sem' : 'mois'}</div>
                         {plan.discount_percent > 0 && (
                           <Badge className="mt-3 bg-green-100 text-green-700">Économisez {plan.discount_percent}%</Badge>
                         )}
@@ -1206,18 +1239,6 @@ function App() {
                         )}
                       </button>
                     ))}
-                  </div>
-                  <div className="flex justify-between mt-10">
-                    <Button variant="outline" onClick={resetPurchaseFlow} className="border-moroccan-brown/20 text-moroccan-brown">
-                      <ChevronLeft className="w-4 h-4 mr-1" /> Retour
-                    </Button>
-                    <Button
-                      onClick={() => { if (subSelectedPlan) setSubStep('plats'); }}
-                      disabled={!subSelectedPlan}
-                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown"
-                    >
-                      Choisir mes plats <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
                   </div>
                 </div>
               )}
@@ -1296,18 +1317,6 @@ function App() {
                     })}
                   </div>
 
-                  <div className="flex justify-between mt-10">
-                    <Button variant="outline" onClick={() => setSubStep('meals')} className="border-moroccan-brown/20 text-moroccan-brown">
-                      <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
-                    </Button>
-                    <Button
-                      onClick={() => setSubStep('extras')}
-                      disabled={subPlatsCount < 1}
-                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown"
-                    >
-                      Ajouter des extras <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
                 </div>
               )}
 
@@ -1385,20 +1394,63 @@ function App() {
                     ))}
                   </Tabs>
 
-                  <div className="flex justify-between mt-10">
-                    <Button variant="outline" onClick={() => setSubStep('plats')} className="border-moroccan-brown/20 text-moroccan-brown">
-                      <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
-                    </Button>
-                    <Button onClick={() => setSubStep('review')} className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown">
-                      {subExtrasCount > 0 ? 'Voir le récapitulatif' : 'Passer cette étape'} <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
                 </div>
               )}
 
+              {/* Sticky bottom navigation bar for subscription flow — always visible */}
+              <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t shadow-lg z-50 px-3 sm:px-4 py-2.5 sm:py-3">
+                <div className="max-w-4xl mx-auto flex justify-between items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (subStep === 'review') { setSubStep('extras'); scrollToSection('menu'); }
+                      else if (subStep === 'meals') resetPurchaseFlow();
+                      else { setSubStep(subStep === 'plats' ? 'meals' : 'plats'); scrollToSection('menu'); }
+                    }}
+                    className="border-moroccan-brown/20 text-moroccan-brown shrink-0"
+                  >
+                    <ChevronLeft className="w-4 h-4 sm:mr-1" />
+                    <span className="hidden sm:inline">{subStep === 'meals' ? 'Retour' : 'Précédent'}</span>
+                  </Button>
+                  <span className="text-xs sm:text-sm font-medium text-moroccan-brown/60 text-center truncate">
+                    {subStep === 'meals' && subSelectedPlan ? `${subSelectedPlan.meals_per_week} repas/sem` : ''}
+                    {subStep === 'plats' ? `${subPlatsCount} plat${subPlatsCount > 1 ? 's' : ''}` : ''}
+                    {subStep === 'extras' ? `${subExtrasCount} extra${subExtrasCount > 1 ? 's' : ''}` : ''}
+                    {subStep === 'review' ? `${subMonthlyTotal.toFixed(2)} $/mois` : ''}
+                  </span>
+                  {subStep !== 'review' ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (subStep === 'meals' && subSelectedPlan) { setSubStep('plats'); scrollToSection('menu'); }
+                        else if (subStep === 'plats') { setSubStep('extras'); scrollToSection('menu'); }
+                        else if (subStep === 'extras') { setSubStep('review'); scrollToSection('menu'); }
+                      }}
+                      disabled={subStep === 'meals' ? !subSelectedPlan : subStep === 'plats' ? subPlatsCount < (subSelectedPlan?.meals_per_week || 1) : false}
+                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown shrink-0"
+                    >
+                      <span className="hidden sm:inline">{subStep === 'meals' ? 'Choisir mes plats' : subStep === 'plats' ? (subPlatsCount < (subSelectedPlan?.meals_per_week || 1) ? `${subPlatsCount}/${subSelectedPlan?.meals_per_week} plats` : 'Extras') : subExtrasCount > 0 ? 'Récapitulatif' : 'Passer'}</span>
+                      <span className="sm:hidden">{subStep === 'meals' ? 'Suivant' : subStep === 'plats' ? (subPlatsCount < (subSelectedPlan?.meals_per_week || 1) ? `${subPlatsCount}/${subSelectedPlan?.meals_per_week}` : 'Extras') : 'Suivant'}</span>
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => setSubCheckoutOpen(true)}
+                      className="bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown shrink-0"
+                    >
+                      <CalendarCheck className="w-4 h-4 sm:mr-1" />
+                      <span className="hidden sm:inline">S'abonner</span>
+                      <span className="sm:hidden">S'abonner</span>
+                    </Button>
+                  )}
+                  </div>
+                </div>
+
               {/* Step 4: Review & Subscribe */}
               {subStep === 'review' && subSelectedPlan && (
-                <div className="max-w-2xl mx-auto">
+                <div className="max-w-2xl mx-auto pb-16">
                   <h3 className="font-display text-2xl text-moroccan-brown mb-6 text-center">Récapitulatif de votre Abonnement</h3>
 
                   {/* Plan summary */}
@@ -1447,20 +1499,83 @@ function App() {
                                 <Badge className="ml-2 text-xs bg-moroccan-brown/10 text-moroccan-brown/50">{category === 'entree' ? 'Entrée' : 'Dessert'}</Badge>
                               </div>
                             </div>
-                            <span className="text-sm text-moroccan-brown/50">x{qty}</span>
+                            <div className="text-right">
+                              <span className="text-sm font-semibold text-moroccan-red">{(item.price * qty).toFixed(2)} $</span>
+                              <span className="text-xs text-moroccan-brown/40 ml-1">x{qty}</span>
+                            </div>
                           </div>
                         ))}
+                      </div>
+
+                      {/* Extras mode toggle */}
+                      <div className="mt-4 bg-moroccan-gold/5 border border-moroccan-gold/20 rounded-xl p-4">
+                        <p className="text-sm font-semibold text-moroccan-brown mb-3">Comment souhaitez-vous recevoir vos extras ?</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setSubExtrasMode('onetime')}
+                            className={`p-3 rounded-xl border-2 text-left transition-all ${
+                              subExtrasMode === 'onetime'
+                                ? 'border-moroccan-gold bg-moroccan-gold/10'
+                                : 'border-moroccan-brown/10 bg-white hover:border-moroccan-gold/40'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Package className="w-4 h-4 text-moroccan-gold shrink-0" />
+                              <span className="text-sm font-semibold text-moroccan-brown">Première livraison</span>
+                            </div>
+                            <p className="text-xs text-moroccan-brown/50">Inclus uniquement avec votre 1er colis (+{subExtrasTotal.toFixed(2)} $)</p>
+                          </button>
+                          <button
+                            onClick={() => setSubExtrasMode('recurring')}
+                            className={`p-3 rounded-xl border-2 text-left transition-all ${
+                              subExtrasMode === 'recurring'
+                                ? 'border-moroccan-gold bg-moroccan-gold/10'
+                                : 'border-moroccan-brown/10 bg-white hover:border-moroccan-gold/40'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <CalendarCheck className="w-4 h-4 text-moroccan-gold shrink-0" />
+                              <span className="text-sm font-semibold text-moroccan-brown">Chaque semaine</span>
+                            </div>
+                            <p className="text-xs text-moroccan-brown/50">Ajoutés à chaque livraison (+{(subExtrasTotal * 4).toFixed(2)} $/mois)</p>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
 
                   {/* Subscribe button */}
                   <div className="bg-white rounded-2xl p-6 shadow-moroccan">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-moroccan-brown font-medium">Abonnement mensuel</span>
-                      <span className="text-2xl font-bold text-moroccan-red">{subSelectedPlan.monthly_price.toFixed(2)} $ / mois</span>
+                    <div className="space-y-1.5 mb-4">
+                      <div className="flex justify-between items-center text-sm text-moroccan-brown/60">
+                        <span>Plan ({subSelectedPlan.meals_per_week} repas/sem)</span>
+                        <span>{subSelectedPlan.monthly_price.toFixed(2)} $</span>
+                      </div>
+                      {subExtrasCount > 0 && subExtrasMode === 'recurring' && (
+                        <div className="flex justify-between items-center text-sm text-moroccan-brown/60">
+                          <span>Extras ({subExtrasCount}) x4 sem</span>
+                          <span>+{(subExtrasTotal * 4).toFixed(2)} $</span>
+                        </div>
+                      )}
+                      {subExtrasCount > 0 && subExtrasMode === 'onetime' && (
+                        <div className="flex justify-between items-center text-sm text-moroccan-orange">
+                          <span>Extras 1re livraison</span>
+                          <span>+{subExtrasTotal.toFixed(2)} $ (une fois)</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center text-xs text-moroccan-brown/50">
+                        <span>Taxes (TPS + TVQ 15%)</span>
+                        <span>+{subMonthlyTax.toFixed(2)} $</span>
+                      </div>
+                      <div className="border-t border-moroccan-brown/10 pt-2 flex justify-between items-center">
+                        <span className="text-moroccan-brown font-medium">Total mensuel</span>
+                        <span className="text-2xl font-bold text-moroccan-red">{subMonthlyTotal.toFixed(2)} $ / mois</span>
+                      </div>
+                      {subFirstOrderExtras > 0 && (
+                        <p className="text-xs text-moroccan-orange text-right">+ {subFirstOrderTotal.toFixed(2)} $ d'extras à la 1re livraison (taxes incl.)</p>
+                      )}
                     </div>
-                    <p className="text-xs text-moroccan-brown/40 text-right mb-4">Livraison gratuite incluse</p>
+                    <p className="text-xs text-moroccan-brown/40 text-right mb-4">Taxes et livraison gratuite incluses</p>
                     <Button
                       onClick={() => setSubCheckoutOpen(true)}
                       className="w-full bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown py-6 text-lg font-semibold"
@@ -1469,11 +1584,6 @@ function App() {
                     </Button>
                   </div>
 
-                  <div className="flex justify-between mt-6">
-                    <Button variant="outline" onClick={() => setSubStep('extras')} className="border-moroccan-brown/20 text-moroccan-brown">
-                      <ChevronLeft className="w-4 h-4 mr-1" /> Modifier
-                    </Button>
-                  </div>
                 </div>
               )}
             </div>
@@ -1482,81 +1592,40 @@ function App() {
       </section>
 
       {/* How It Works Section */}
-      <section id="how-it-works" className="py-20 px-4 sm:px-6 lg:px-8 bg-moroccan-brown text-white relative overflow-hidden">
-        {/* Zellige Pattern Background */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: 'url(/zellige-pattern.jpg)',
-            backgroundSize: '150px 150px',
-            backgroundRepeat: 'repeat'
-          }} />
-        </div>
-
-        {/* Decorative Circles */}
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute top-0 left-0 w-64 h-64 border-4 border-white rounded-full -translate-x-1/2 -translate-y-1/2" />
-          <div className="absolute bottom-0 right-0 w-96 h-96 border-4 border-white rounded-full translate-x-1/3 translate-y-1/3" />
-        </div>
-
+      <section id="how-it-works" className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 bg-moroccan-brown text-white relative overflow-hidden">
         <div className="max-w-6xl mx-auto relative z-10">
-          <div className="text-center mb-16">
-            <div className="flex justify-center mb-4">
-              <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-moroccan-gold shadow-lg">
-                <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover" />
-              </div>
-            </div>
-            <Badge className="bg-moroccan-gold text-moroccan-brown mb-4">
-              <Clock className="w-4 h-4 mr-1" />
+          <div className="text-center mb-12 sm:mb-16">
+            <Badge className="bg-moroccan-gold/15 text-moroccan-gold mb-4 border border-moroccan-gold/20">
+              <Clock className="w-3.5 h-3.5 mr-1" />
               Simple et Rapide
             </Badge>
-            <h2 className="font-display text-5xl sm:text-6xl mb-4">
+            <h2 className="font-display text-4xl sm:text-5xl md:text-6xl mb-4">
               Comment Ça Marche ?
             </h2>
-            <p className="text-white/70 text-lg max-w-2xl mx-auto">
-              Commandez vos saveurs préférées en quelques clics et laissez-nous 
-              vous emmener au Maroc
+            <p className="text-white/60 text-base sm:text-lg max-w-xl mx-auto">
+              Commandez vos saveurs préférées en quelques clics
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {[
-              { 
-                icon: Menu, 
-                title: 'Choisissez Vos Saveurs', 
-                desc: 'Parcourez notre menu et sélectionnez vos plats préférés',
-                color: 'bg-moroccan-red'
-              },
-              { 
-                icon: ChefHat, 
-                title: 'On Prépare avec Amour', 
-                desc: 'Nos chefs préparent votre commande avec des ingrédients frais',
-                color: 'bg-moroccan-orange'
-              },
-              { 
-                icon: Truck, 
-                title: 'Livraison Express', 
-                desc: 'Recevez votre meal box chaude et fraîche à région du Grand Montréal',
-                color: 'bg-moroccan-green'
-              },
-              { 
-                icon: Home, 
-                title: 'Dégustez Chez Vous', 
-                desc: 'Profitez d\'un authentique repas marocain dans votre salon',
-                color: 'bg-moroccan-gold'
-              },
+              { icon: Menu, title: 'Choisissez', desc: 'Parcourez le menu et sélectionnez vos plats', color: 'bg-moroccan-red' },
+              { icon: ChefHat, title: 'On Prépare', desc: 'Nos chefs cuisinent avec des ingrédients frais', color: 'bg-moroccan-orange' },
+              { icon: Truck, title: 'Livraison', desc: 'Livré frais dans le Grand Montréal', color: 'bg-moroccan-green' },
+              { icon: Home, title: 'Dégustez', desc: 'Un repas marocain authentique chez vous', color: 'bg-moroccan-gold' },
             ].map((step, idx) => (
-              <div 
+              <div
                 key={step.title}
                 className="text-center group animate-slide-up"
-                style={{ animationDelay: `${idx * 0.15}s` }}
+                style={{ animationDelay: `${idx * 0.1}s` }}
               >
-                <div className={`${step.color} w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-lg`}>
-                  <step.icon className="w-10 h-10 text-white" />
+                <div className={`${step.color} w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform shadow-lg`}>
+                  <step.icon className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
                 </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 hover:bg-white/20 transition-colors border border-white/10">
-                  <div className="text-4xl font-display text-moroccan-gold mb-2">0{idx + 1}</div>
-                  <h3 className="font-display text-2xl mb-2">{step.title}</h3>
-                  <p className="text-white/70 text-sm">{step.desc}</p>
+                <div className="bg-white/5 rounded-xl p-4 sm:p-5 border border-white/10">
+                  <div className="text-xs font-semibold text-moroccan-gold/80 mb-1">0{idx + 1}</div>
+                  <h3 className="font-display text-xl sm:text-2xl mb-1.5">{step.title}</h3>
+                  <p className="text-white/50 text-xs sm:text-sm leading-relaxed">{step.desc}</p>
                 </div>
               </div>
             ))}
@@ -1565,56 +1634,46 @@ function App() {
       </section>
 
       {/* Testimonials Section */}
-      <section id="testimonials" className="py-20 px-4 sm:px-6 lg:px-8 bg-moroccan-cream relative">
-        {/* Zellige Border */}
-        <div className="absolute top-0 left-0 right-0 h-4 overflow-hidden">
-          <div className="w-full h-full" style={{
-            backgroundImage: 'url(/zellige-pattern.jpg)',
-            backgroundSize: '100px 100%',
-            backgroundRepeat: 'repeat-x'
-          }} />
-        </div>
-
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <div className="flex justify-center mb-4">
-              <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-moroccan-green shadow-lg">
-                <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover" />
-              </div>
-            </div>
-            <Badge className="bg-moroccan-green text-white mb-4">
-              <Star className="w-4 h-4 mr-1" />
+      <section id="testimonials" className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 bg-white relative">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12 sm:mb-16">
+            <Badge className="bg-moroccan-green/10 text-moroccan-green mb-4 border border-moroccan-green/20">
+              <Star className="w-3.5 h-3.5 mr-1" />
               Avis Clients
             </Badge>
-            <h2 className="font-display text-5xl sm:text-6xl text-moroccan-brown mb-4">
-              Ils Ont Voyagé
+            <h2 className="font-display text-4xl sm:text-5xl md:text-6xl text-moroccan-brown mb-3">
+              Ils Ont Adoré
             </h2>
-            <p className="text-moroccan-brown/70 text-lg max-w-2xl mx-auto">
-              Découvrez ce que nos clients disent de leur expérience BledCrate
+            <p className="text-moroccan-brown/50 text-base sm:text-lg max-w-lg mx-auto">
+              Ce que nos clients disent de BledCrate
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {testimonials.map((review, idx) => (
-              <div 
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {(reviews.length > 0 ? reviews : testimonials).map((review, idx) => (
+              <div
                 key={review.id}
-                className={`bg-white rounded-2xl p-6 shadow-moroccan card-hover animate-fade-in border-2 border-transparent hover:border-moroccan-red/20`}
+                className="bg-moroccan-cream/50 rounded-2xl p-5 sm:p-6 animate-fade-in border border-moroccan-brown/5 hover:border-moroccan-red/15 transition-colors"
                 style={{ animationDelay: `${idx * 0.1}s` }}
               >
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 bg-moroccan-red rounded-full flex items-center justify-center text-white font-bold text-xl">
-                    {review.avatar}
-                  </div>
+                <div className="flex items-center gap-3 mb-3">
+                  {'image_url' in review && (review as Review).image_url ? (
+                    <img src={(review as Review).image_url} alt={review.name} className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 bg-moroccan-red rounded-full flex items-center justify-center text-white font-bold text-lg">
+                      {review.avatar || review.name.charAt(0)}
+                    </div>
+                  )}
                   <div>
-                    <h4 className="font-semibold text-moroccan-brown">{review.name}</h4>
-                    <div className="flex gap-1">
+                    <h4 className="font-semibold text-moroccan-brown text-sm">{review.name}</h4>
+                    <div className="flex gap-0.5">
                       {[...Array(review.rating)].map((_, i) => (
-                        <Star key={i} className="w-4 h-4 fill-moroccan-gold text-moroccan-gold" />
+                        <Star key={i} className="w-3.5 h-3.5 fill-moroccan-gold text-moroccan-gold" />
                       ))}
                     </div>
                   </div>
                 </div>
-                <p className="text-moroccan-brown/70 italic">"{review.text}"</p>
+                <p className="text-moroccan-brown/60 text-sm leading-relaxed">"{review.text}"</p>
               </div>
             ))}
           </div>
@@ -1623,14 +1682,7 @@ function App() {
 
       {/* Subscription CTA Section */}
       {siteSettings?.subscription_enabled === 'true' && (
-        <section className="py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-moroccan-brown to-moroccan-brown-light text-white relative overflow-hidden">
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute inset-0" style={{
-              backgroundImage: 'url(/zellige-pattern.jpg)',
-              backgroundSize: '150px 150px',
-              backgroundRepeat: 'repeat'
-            }} />
-          </div>
+        <section className="py-12 sm:py-16 px-4 sm:px-6 lg:px-8 bg-moroccan-brown text-white relative overflow-hidden">
           <div className="max-w-5xl mx-auto relative z-10 flex flex-col md:flex-row items-center gap-8">
             <div className="flex-1 text-center md:text-left">
               <Badge className="bg-moroccan-gold text-moroccan-brown mb-3">
@@ -1661,44 +1713,32 @@ function App() {
       )}
 
       {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      <section className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         <div className="absolute inset-0">
-          <img
-            src="/mint-tea.jpg"
-            alt="Thé à la Menthe"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-moroccan-red/80" />
+          <img src="/mint-tea.jpg" alt="Thé à la Menthe" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-moroccan-red/90 to-moroccan-red-dark/90" />
         </div>
 
-        {/* Zellige Corners */}
-        <div className="absolute top-0 left-0 w-24 h-24 opacity-40">
-          <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-br-full" />
-        </div>
-        <div className="absolute bottom-0 right-0 w-24 h-24 opacity-40">
-          <img src="/zellige-pattern.jpg" alt="" className="w-full h-full object-cover rounded-tl-full" />
-        </div>
-
-        <div className="max-w-4xl mx-auto text-center relative z-10">
-          <h2 className="font-display text-5xl sm:text-6xl text-white mb-6">
-            Prêt à Voyager au Maroc ?
+        <div className="max-w-3xl mx-auto text-center relative z-10">
+          <h2 className="font-display text-4xl sm:text-5xl md:text-6xl text-white mb-4">
+            Prêt à Commander ?
           </h2>
-          <p className="text-white/90 text-lg mb-8 max-w-2xl mx-auto">
-            Commandez dès maintenant et profitez automatiquement d'une réduction de <span className="font-bold text-moroccan-gold">10%</span> sur votre première commande.
+          <p className="text-white/80 text-base sm:text-lg mb-8 max-w-lg mx-auto">
+            Profitez de <span className="font-bold text-moroccan-gold">10% de réduction</span> sur votre première commande
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button
               onClick={() => scrollToSection('menu')}
-              className="bg-white text-moroccan-red hover:bg-moroccan-cream px-10 py-6 text-lg font-semibold rounded-full btn-liquid"
+              className="bg-white text-moroccan-red hover:bg-moroccan-cream px-8 py-6 text-lg font-semibold rounded-full shadow-lg transition-all hover:scale-[1.02]"
             >
-              Commander Maintenant
-              <ShoppingCart className="w-5 h-5 ml-2" />
+              Commander
+              <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
             {siteSettings?.subscription_enabled === 'true' && (
               <Link to="/abonnement">
                 <Button
                   variant="outline"
-                  className="border-2 border-white text-white hover:bg-white hover:text-moroccan-red px-10 py-6 text-lg font-semibold rounded-full bg-transparent"
+                  className="border-2 border-white/40 text-white hover:bg-white hover:text-moroccan-red px-8 py-6 text-lg font-semibold rounded-full bg-white/10 backdrop-blur-sm"
                 >
                   S'abonner
                   <Package className="w-5 h-5 ml-2" />
@@ -1710,15 +1750,7 @@ function App() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-moroccan-brown text-white py-16 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-        {/* Zellige Background */}
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0" style={{
-            backgroundImage: 'url(/zellige-pattern.jpg)',
-            backgroundSize: '100px 100px',
-            backgroundRepeat: 'repeat'
-          }} />
-        </div>
+      <footer className="bg-moroccan-brown text-white py-12 sm:py-16 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
 
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
@@ -1739,11 +1771,10 @@ function App() {
             <div>
               <h4 className="font-display text-xl mb-4">Liens Rapides</h4>
               <ul className="space-y-2 text-white/70">
-                <li><button onClick={() => scrollToSection('menu')} className="hover:text-moroccan-gold transition-colors">Notre Menu</button></li>
-                <li><Link to="/abonnement" className="hover:text-moroccan-gold transition-colors">Abonnement</Link></li>
-                <li><button onClick={() => scrollToSection('how-it-works')} className="hover:text-moroccan-gold transition-colors">Comment Ça Marche</button></li>
-                <li><button onClick={() => scrollToSection('testimonials')} className="hover:text-moroccan-gold transition-colors">Avis Clients</button></li>
-                <li><Link to="/politique" className="hover:text-moroccan-gold transition-colors">Livraison & Retours</Link></li>
+                <li><button onClick={() => scrollToSection('menu')} className="hover:text-moroccan-gold transition-colors">Nos Plats</button></li>
+                <li><button onClick={() => scrollToSection('how-it-works')} className="hover:text-moroccan-gold transition-colors">Processus</button></li>
+                <li><Link to="/track" className="hover:text-moroccan-gold transition-colors">Track</Link></li>
+                <li><Link to="/politique" className="hover:text-moroccan-gold transition-colors">Politique</Link></li>
                 <li><Link to="/confidentialite" className="hover:text-moroccan-gold transition-colors">Confidentialité</Link></li>
                 <li><Link to="/conditions" className="hover:text-moroccan-gold transition-colors">Conditions d'Utilisation</Link></li>
               </ul>
@@ -1781,16 +1812,7 @@ function App() {
             </div>
           </div>
           
-          {/* Zellige Separator */}
-          <div className="h-4 overflow-hidden mb-8 opacity-30">
-            <div className="w-full h-full" style={{
-              backgroundImage: 'url(/zellige-pattern.jpg)',
-              backgroundSize: '100px 100%',
-              backgroundRepeat: 'repeat-x'
-            }} />
-          </div>
-          
-          <div className="text-center text-white/50 text-sm">
+          <div className="border-t border-white/10 pt-8 mt-8 text-center text-white/40 text-sm">
             <p>© 2026 BledCrate. Tous droits réservés. | Saveurs Authentiques du Maroc</p>
             <p className="mt-1">région du Grand Montréal, Québec | contact@bledcrate.ca | <a href="https://www.bledcrate.ca" className="hover:text-moroccan-gold transition-colors">www.bledcrate.ca</a></p>
           </div>
@@ -1799,48 +1821,136 @@ function App() {
 
       {/* Subscription Checkout Dialog */}
       <Dialog open={subCheckoutOpen} onOpenChange={setSubCheckoutOpen}>
-        <DialogContent className="bg-moroccan-cream max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display text-3xl text-moroccan-brown">S'abonner</DialogTitle>
-            <DialogDescription className="text-moroccan-brown/70">
-              {subSelectedPlan ? `${subSelectedPlan.meals_per_week} repas/semaine — ${subSelectedPlan.monthly_price.toFixed(2)} $/mois` : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 mt-2">
+        <DialogContent className="bg-moroccan-cream max-w-lg p-0 gap-0 max-h-[95vh] sm:max-h-[85vh] overflow-hidden flex flex-col">
+          {/* Header with gradient */}
+          <div className="bg-gradient-to-r from-moroccan-gold to-moroccan-gold/80 px-6 py-5 text-moroccan-brown">
+            <DialogHeader className="space-y-1">
+              <DialogTitle className="font-display text-2xl sm:text-3xl text-moroccan-brown flex items-center gap-2">
+                <CalendarCheck className="w-6 h-6" /> S'abonner
+              </DialogTitle>
+              <DialogDescription className="text-moroccan-brown/70 text-sm">
+                Vos repas livrés chaque semaine, sans effort
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+            {/* Plan summary card */}
+            {subSelectedPlan && (
+              <div className="bg-white rounded-xl p-4 shadow-sm border border-moroccan-gold/20 space-y-2">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="font-semibold text-moroccan-brown">{subSelectedPlan.meals_per_week} repas / semaine</span>
+                    <p className="text-xs text-moroccan-brown/50 mt-0.5">{subSelectedPlan.price_per_meal.toFixed(2)} $ par repas</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm text-moroccan-brown/60">{subSelectedPlan.monthly_price.toFixed(2)} $</span>
+                  </div>
+                </div>
+                {subExtrasCount > 0 && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-moroccan-brown/60">
+                      Extras ({subExtrasCount}) — {subExtrasMode === 'recurring' ? 'chaque semaine' : '1re livraison'}
+                    </span>
+                    <span className="text-moroccan-brown/60">
+                      {subExtrasMode === 'recurring' ? `+${(subExtrasTotal * 4).toFixed(2)} $` : `+${subExtrasTotal.toFixed(2)} $ (1x)`}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-xs text-moroccan-brown/50">
+                  <span>Taxes (TPS + TVQ 15%)</span>
+                  <span>+{subMonthlyTax.toFixed(2)} $</span>
+                </div>
+                <div className="pt-2 border-t border-moroccan-brown/10 flex justify-between items-center">
+                  <span className="font-semibold text-moroccan-brown text-sm">Total mensuel</span>
+                  <span className="text-xl font-bold text-moroccan-red">{subMonthlyTotal.toFixed(2)} $ / mois</span>
+                </div>
+                {subFirstOrderExtras > 0 && (
+                  <p className="text-xs text-moroccan-orange text-right">+ {subFirstOrderTotal.toFixed(2)} $ d'extras à la 1re livraison (taxes incl.)</p>
+                )}
+                <div className="flex items-center gap-1.5 text-xs text-green-600">
+                  <Truck className="w-3.5 h-3.5" /> Taxes et livraison gratuite incluses
+                </div>
+              </div>
+            )}
+
+            {/* Personal info */}
             <div>
-              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Nom complet *</label>
-              <input type="text" placeholder="Ex: Fatima Benali" value={subCustomerInfo.name}
-                onChange={e => setSubCustomerInfo(p => ({ ...p, name: e.target.value }))}
-                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-gold/15 flex items-center justify-center">
+                  <User className="w-3.5 h-3.5 text-moroccan-gold" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Informations personnelles</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Nom complet *</label>
+                  <input type="text" placeholder="Fatima Benali" value={subCustomerInfo.name}
+                    onChange={e => setSubCustomerInfo(p => ({ ...p, name: e.target.value }))}
+                    className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-gold/30 focus:border-moroccan-gold bg-white text-moroccan-brown transition-all" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Téléphone *</label>
+                  <input type="tel" placeholder="438-808-4120" value={subCustomerInfo.phone}
+                    onChange={e => setSubCustomerInfo(p => ({ ...p, phone: e.target.value }))}
+                    className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-gold/30 focus:border-moroccan-gold bg-white text-moroccan-brown transition-all" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Email *</label>
+                <input type="email" placeholder="fatima@email.com" value={subCustomerInfo.email}
+                  onChange={e => setSubCustomerInfo(p => ({ ...p, email: e.target.value }))}
+                  className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-gold/30 focus:border-moroccan-gold bg-white text-moroccan-brown transition-all" />
+              </div>
             </div>
+
+            {/* Delivery */}
             <div>
-              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Email *</label>
-              <input type="email" placeholder="Ex: fatima@email.com" value={subCustomerInfo.email}
-                onChange={e => setSubCustomerInfo(p => ({ ...p, email: e.target.value }))}
-                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-gold/15 flex items-center justify-center">
+                  <MapPin className="w-3.5 h-3.5 text-moroccan-gold" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Livraison</span>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Adresse complète *</label>
+                <input type="text" placeholder="123 Rue Principale, Montréal, QC" value={subCustomerInfo.address}
+                  onChange={e => setSubCustomerInfo(p => ({ ...p, address: e.target.value }))}
+                  className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-gold/30 focus:border-moroccan-gold bg-white text-moroccan-brown transition-all" />
+              </div>
             </div>
+
+            {/* Notes */}
             <div>
-              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Téléphone *</label>
-              <input type="tel" placeholder="Ex: 438-808-4120" value={subCustomerInfo.phone}
-                onChange={e => setSubCustomerInfo(p => ({ ...p, phone: e.target.value }))}
-                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-gold/15 flex items-center justify-center">
+                  <MessageSquare className="w-3.5 h-3.5 text-moroccan-gold" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Notes <span className="font-normal text-moroccan-brown/40">(optionnel)</span></span>
+              </div>
+              <textarea placeholder="Allergies, préférences alimentaires, instructions de livraison..." value={subCustomerInfo.notes}
+                onChange={e => setSubCustomerInfo(p => ({ ...p, notes: e.target.value }))}
+                rows={2}
+                className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-gold/30 focus:border-moroccan-gold bg-white text-moroccan-brown resize-none transition-all" />
             </div>
-            <div>
-              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Adresse de livraison *</label>
-              <input type="text" placeholder="Ex: 123 Rue Principale, Montréal" value={subCustomerInfo.address}
-                onChange={e => setSubCustomerInfo(p => ({ ...p, address: e.target.value }))}
-                className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-gold bg-white text-moroccan-brown" />
-            </div>
+          </div>
+
+          {/* Sticky footer */}
+          <div className="border-t bg-white/80 backdrop-blur-sm px-6 py-4 space-y-3">
             <Button
               onClick={handleSubscribe}
               disabled={subSubmitting}
-              className="w-full bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown py-6 font-semibold text-base"
+              className="w-full bg-moroccan-gold hover:bg-moroccan-gold/90 text-moroccan-brown py-6 font-semibold text-base rounded-xl shadow-lg shadow-moroccan-gold/20 transition-all hover:shadow-xl hover:shadow-moroccan-gold/30"
             >
-              {subSubmitting ? 'Redirection...' : `S'abonner — ${subSelectedPlan?.monthly_price.toFixed(2)} $/mois`}
+              {subSubmitting ? (
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-moroccan-brown/30 border-t-moroccan-brown rounded-full animate-spin" /> Redirection...</span>
+              ) : (
+                <span className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> S'abonner — {subMonthlyTotal.toFixed(2)} $ / mois{subFirstOrderExtras > 0 ? ` + ${subFirstOrderTotal.toFixed(2)} $` : ''}</span>
+              )}
             </Button>
-            <div className="flex items-center justify-center gap-2">
-              <svg className="w-4 h-4 text-moroccan-brown/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-              <p className="text-xs text-moroccan-brown/40">Paiement sécurisé par Stripe</p>
+            <div className="flex items-center justify-center gap-4 text-xs text-moroccan-brown/40">
+              <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> Paiement sécurisé</span>
+              <span className="flex items-center gap-1"><Sparkles className="w-3.5 h-3.5" /> Annulable à tout moment</span>
             </div>
           </div>
         </DialogContent>
@@ -1848,137 +1958,171 @@ function App() {
 
       {/* Checkout Dialog */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
-        <DialogContent className="bg-moroccan-cream max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display text-3xl text-moroccan-brown">
-              Finaliser la Commande
-            </DialogTitle>
-            <DialogDescription className="text-moroccan-brown/70">
-              Remplissez vos informations pour que nous puissions vous livrer
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
+        <DialogContent className="bg-moroccan-cream max-w-lg p-0 gap-0 max-h-[95vh] sm:max-h-[85vh] overflow-hidden flex flex-col">
+          {/* Header with gradient */}
+          <div className="bg-gradient-to-r from-moroccan-red to-moroccan-red-dark px-6 py-5 text-white">
+            <DialogHeader className="space-y-1">
+              <DialogTitle className="font-display text-2xl sm:text-3xl text-white flex items-center gap-2">
+                <ShoppingCart className="w-6 h-6" /> Votre Commande
+              </DialogTitle>
+              <DialogDescription className="text-white/70 text-sm">
+                Plus qu'une étape avant de savourer
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
             {/* Order Summary */}
-            <div className="bg-white rounded-xl p-4 space-y-1.5 text-sm">
-              {cart.map(i => (
-                <div key={`${i.id}-${i.selectedVariant}`} className="flex justify-between text-moroccan-brown">
-                  <span className="flex-1">{i.name}{i.selectedVariant ? ` (${i.selectedVariant})` : ''} <span className="text-moroccan-brown/50">x{i.quantity}</span></span>
-                  <span className="font-semibold ml-4">{(i.price * i.quantity).toFixed(2)} $</span>
-                </div>
-              ))}
-              {(qualifiesForBundle || promoApplied || deliveryFee > 0) && (
-                <>
-                  <div className="border-t pt-2 flex justify-between text-moroccan-brown/70">
-                    <span>Sous-total</span>
-                    <span>{cartTotal.toFixed(2)} $</span>
-                  </div>
-                  {qualifiesForBundle && (
-                    <div className="flex justify-between text-green-600">
-                      <span>Bundle -{bundleDiscountPercent}%</span>
-                      <span>-{bundleDiscountAmount.toFixed(2)} $</span>
-                    </div>
-                  )}
-                  {promoApplied && (
-                    <div className="flex justify-between text-green-600">
-                      <span>Promo ({promoApplied.code}) -{promoApplied.discount}%</span>
-                      <span>-{discountAmount.toFixed(2)} $</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-moroccan-brown/70">
-                    <span>Livraison</span>
-                    <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
-                      {deliveryFee === 0 ? 'GRATUITE' : `${deliveryFee.toFixed(2)} $`}
-                    </span>
-                  </div>
-                </>
-              )}
-              <div className={`${(qualifiesForBundle || promoApplied || deliveryFee > 0) ? '' : 'border-t pt-2'}`}>
-                <div className="flex justify-between font-bold text-moroccan-red text-lg">
-                  <span>Total</span>
-                  <span>{finalTotal.toFixed(2)} $</span>
-                </div>
-                <p className="text-xs text-moroccan-brown/40 text-right mt-0.5">Livraison, frais et taxes inclus</p>
-              </div>
-            </div>
-            {/* Promo Code */}
             <div>
-              <label className="text-sm font-medium text-moroccan-brown mb-1 block">Code promo</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Ex: BIENVENUE10"
-                  value={customerInfo.promoCode}
-                  onChange={e => setCustomerInfo(p => ({ ...p, promoCode: e.target.value.toUpperCase() }))}
-                  className="flex-1 border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
-                />
-                <Button onClick={applyPromoCode} variant="outline" className="border-moroccan-brown/20 text-moroccan-brown shrink-0">
-                  Appliquer
-                </Button>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-red/10 flex items-center justify-center">
+                  <Package className="w-3.5 h-3.5 text-moroccan-red" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Récapitulatif</span>
+              </div>
+              <div className="bg-white rounded-xl p-4 space-y-2 text-sm shadow-sm">
+                {cart.map(i => (
+                  <div key={`${i.id}-${i.selectedVariant}`} className="flex justify-between text-moroccan-brown items-center">
+                    <span className="flex-1 flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-md bg-moroccan-red/10 flex items-center justify-center text-xs font-bold text-moroccan-red">{i.quantity}</span>
+                      {i.name}{i.selectedVariant ? <span className="text-moroccan-brown/40 text-xs">({i.selectedVariant})</span> : ''}
+                    </span>
+                    <span className="font-semibold ml-4 text-moroccan-brown/80">{(i.price * i.quantity).toFixed(2)} $</span>
+                  </div>
+                ))}
+
+                <div className="border-t border-dashed border-moroccan-brown/10 pt-2 mt-2 space-y-1">
+                  {(qualifiesForBundle || promoApplied || deliveryFee > 0) && (
+                    <>
+                      <div className="flex justify-between text-moroccan-brown/50 text-xs">
+                        <span>Sous-total</span>
+                        <span>{cartTotal.toFixed(2)} $</span>
+                      </div>
+                      {qualifiesForBundle && (
+                        <div className="flex justify-between text-green-600 text-xs font-medium">
+                          <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> Bundle -{bundleDiscountPercent}%</span>
+                          <span>-{bundleDiscountAmount.toFixed(2)} $</span>
+                        </div>
+                      )}
+                      {promoApplied && (
+                        <div className="flex justify-between text-green-600 text-xs font-medium">
+                          <span className="flex items-center gap-1"><Percent className="w-3 h-3" /> {promoApplied.code} -{promoApplied.discount}%</span>
+                          <span>-{discountAmount.toFixed(2)} $</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs text-moroccan-brown/50">
+                        <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> Livraison</span>
+                        <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
+                          {deliveryFee === 0 ? 'GRATUITE' : `${deliveryFee.toFixed(2)} $`}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between items-baseline pt-1">
+                    <span className="font-bold text-moroccan-brown">Total</span>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
+                      <p className="text-[10px] text-moroccan-brown/40">Taxes et frais inclus</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            {/* Form Fields */}
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Nom complet *</label>
-                <input
-                  type="text"
-                  placeholder="Ex: Fatima Benali"
-                  value={customerInfo.name}
-                  onChange={e => setCustomerInfo(p => ({ ...p, name: e.target.value }))}
-                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
-                />
+
+            {/* Promo Code */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Code promo"
+                value={customerInfo.promoCode}
+                onChange={e => setCustomerInfo(p => ({ ...p, promoCode: e.target.value.toUpperCase() }))}
+                className="flex-1 border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red bg-white text-moroccan-brown transition-all"
+              />
+              <Button onClick={applyPromoCode} variant="outline" className="border-moroccan-brown/15 text-moroccan-brown shrink-0 rounded-xl px-5">
+                <Percent className="w-4 h-4 mr-1" /> Appliquer
+              </Button>
+            </div>
+
+            {/* Personal info */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-red/10 flex items-center justify-center">
+                  <User className="w-3.5 h-3.5 text-moroccan-red" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Informations personnelles</span>
               </div>
-              <div>
-                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Email *</label>
-                <input
-                  type="email"
-                  placeholder="Ex: fatima@email.com"
-                  value={customerInfo.email}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Nom complet *</label>
+                  <input type="text" placeholder="Fatima Benali" value={customerInfo.name}
+                    onChange={e => setCustomerInfo(p => ({ ...p, name: e.target.value }))}
+                    className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red bg-white text-moroccan-brown transition-all" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Téléphone *</label>
+                  <input type="tel" placeholder="438-808-4120" value={customerInfo.phone}
+                    onChange={e => setCustomerInfo(p => ({ ...p, phone: e.target.value }))}
+                    className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red bg-white text-moroccan-brown transition-all" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Email *</label>
+                <input type="email" placeholder="fatima@email.com" value={customerInfo.email}
                   onChange={e => setCustomerInfo(p => ({ ...p, email: e.target.value }))}
-                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Téléphone *</label>
-                <input
-                  type="tel"
-                  placeholder="Ex: 438-808-4120"
-                  value={customerInfo.phone}
-                  onChange={e => setCustomerInfo(p => ({ ...p, phone: e.target.value }))}
-                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Adresse de livraison *</label>
-                <input
-                  type="text"
-                  placeholder="Ex: 123 Rue Principale, région du Grand Montréal"
-                  value={customerInfo.address}
-                  onChange={e => setCustomerInfo(p => ({ ...p, address: e.target.value }))}
-                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Notes (optionnel)</label>
-                <textarea
-                  placeholder="Allergies, instructions spéciales..."
-                  value={customerInfo.notes}
-                  onChange={e => setCustomerInfo(p => ({ ...p, notes: e.target.value }))}
-                  rows={2}
-                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown resize-none"
-                />
+                  className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red bg-white text-moroccan-brown transition-all" />
               </div>
             </div>
+
+            {/* Delivery */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-red/10 flex items-center justify-center">
+                  <MapPin className="w-3.5 h-3.5 text-moroccan-red" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Livraison</span>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-moroccan-brown/60 mb-1 block">Adresse complète *</label>
+                <input type="text" placeholder="123 Rue Principale, Montréal, QC" value={customerInfo.address}
+                  onChange={e => setCustomerInfo(p => ({ ...p, address: e.target.value }))}
+                  className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red bg-white text-moroccan-brown transition-all" />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-moroccan-red/10 flex items-center justify-center">
+                  <MessageSquare className="w-3.5 h-3.5 text-moroccan-red" />
+                </div>
+                <span className="text-sm font-semibold text-moroccan-brown">Notes <span className="font-normal text-moroccan-brown/40">(optionnel)</span></span>
+              </div>
+              <textarea
+                placeholder="Allergies, préférences alimentaires, instructions de livraison..."
+                value={customerInfo.notes}
+                onChange={e => setCustomerInfo(p => ({ ...p, notes: e.target.value }))}
+                rows={2}
+                className="w-full border border-moroccan-brown/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red bg-white text-moroccan-brown resize-none transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Sticky footer */}
+          <div className="border-t bg-white/80 backdrop-blur-sm px-6 py-4 space-y-3">
             <Button
               onClick={sendOrder}
               disabled={isSubmitting}
-              className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6 font-semibold text-base"
+              className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white py-6 font-semibold text-base rounded-xl shadow-lg shadow-moroccan-red/20 transition-all hover:shadow-xl hover:shadow-moroccan-red/30"
             >
-              {isSubmitting ? 'Redirection vers le paiement...' : `Payer ${finalTotal.toFixed(2)} $`}
+              {isSubmitting ? (
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Redirection vers le paiement...</span>
+              ) : (
+                <span className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Payer {finalTotal.toFixed(2)} $</span>
+              )}
             </Button>
-            <div className="flex items-center justify-center gap-2 mt-1">
-              <svg className="w-4 h-4 text-moroccan-brown/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-              <p className="text-xs text-moroccan-brown/40">Paiement sécurisé par Stripe</p>
+            <div className="flex items-center justify-center gap-4 text-xs text-moroccan-brown/40">
+              <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> Paiement sécurisé</span>
+              <span className="flex items-center gap-1"><Truck className="w-3.5 h-3.5" /> Livraison rapide</span>
             </div>
           </div>
         </DialogContent>
@@ -2030,8 +2174,8 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      {/* Back to Top Button */}
-      {showBackToTop && (
+      {/* Back to Top Button — hidden when sticky nav bar is active */}
+      {showBackToTop && purchaseMode === null && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           className="fixed bottom-6 right-6 z-40 w-12 h-12 bg-moroccan-red text-white rounded-full shadow-lg flex items-center justify-center hover:bg-moroccan-red-dark transition-all animate-scale-in hover:scale-110"
@@ -2041,15 +2185,17 @@ function App() {
         </button>
       )}
 
-      {/* Floating Contact Button */}
-      <a
-        href="mailto:contact@bledcrate.ca"
-        className="fixed bottom-6 left-6 z-40 flex items-center gap-2 bg-moroccan-brown text-white px-4 py-3 rounded-full shadow-lg hover:bg-moroccan-brown-light transition-all hover:scale-105 group"
-        aria-label="Nous contacter"
-      >
-        <Mail className="w-5 h-5" />
-        <span className="hidden sm:inline text-sm font-medium">Nous contacter</span>
-      </a>
+      {/* Floating Contact Button — hidden when sticky nav bar is active */}
+      {purchaseMode === null && (
+        <a
+          href="mailto:contact@bledcrate.ca"
+          className="fixed bottom-6 left-6 z-40 flex items-center gap-2 bg-moroccan-brown text-white px-4 py-3 rounded-full shadow-lg hover:bg-moroccan-brown-light transition-all hover:scale-105 group"
+          aria-label="Nous contacter"
+        >
+          <Mail className="w-5 h-5" />
+          <span className="hidden sm:inline text-sm font-medium">Nous contacter</span>
+        </a>
+      )}
 
       {/* Toast Notifications */}
       <Toaster position="top-right" richColors />

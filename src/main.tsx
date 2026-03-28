@@ -10,6 +10,7 @@ import AdminPage from './pages/admin/AdminPage.tsx'
 import SuccessPage from './pages/SuccessPage.tsx'
 import SubscriptionPage from './pages/SubscriptionPage.tsx'
 import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage.tsx'
+import TrackPage from './pages/TrackPage.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -23,6 +24,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/conditions" element={<TermsPage />} />
         <Route path="/0x" element={<AdminPage />} />
         <Route path="/merci" element={<SuccessPage />} />
+        <Route path="/track" element={<TrackPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

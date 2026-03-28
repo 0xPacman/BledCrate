@@ -12,12 +12,14 @@ import { fetchSubscriptionPlans, fetchPublicSettings, createSubscription } from 
 import type { SubscriptionPlan, SiteSettings } from '@/lib/api';
 
 type PlanType = 'moi' | 'bundle';
+type BillingInterval = 'weekly' | 'monthly';
 
 interface CustomerInfo {
   name: string;
   email: string;
   phone: string;
   address: string;
+  notes: string;
 }
 
 export default function SubscriptionPage() {
@@ -25,11 +27,15 @@ export default function SubscriptionPage() {
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState<PlanType>('moi');
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
-    name: '', email: '', phone: '', address: '',
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>(() => {
+    try {
+      const s = localStorage.getItem('bledcrate_sub_customer');
+      return s ? { notes: '', ...JSON.parse(s) } : { name: '', email: '', phone: '', address: '', notes: '' };
+    } catch { return { name: '', email: '', phone: '', address: '', notes: '' }; }
   });
 
   useEffect(() => {
@@ -39,7 +45,7 @@ export default function SubscriptionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filteredPlans = plans.filter(p => p.plan_type === selectedType);
+  const filteredPlans = plans.filter(p => p.plan_type === selectedType && (p.billing_interval || 'month') === billingInterval);
 
   // Get the highest price per meal to calculate savings
   const maxPricePerMeal = filteredPlans.length > 0
@@ -54,6 +60,7 @@ export default function SubscriptionPage() {
     }
     setIsSubmitting(true);
     try {
+      localStorage.setItem('bledcrate_sub_customer', JSON.stringify({ name: customerInfo.name, email: customerInfo.email, phone: customerInfo.phone, address: customerInfo.address }));
       const { url } = await createSubscription({
         plan_id: selectedPlan.id,
         customer: customerInfo,
@@ -146,6 +153,28 @@ export default function SubscriptionPage() {
             <div className="w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-sm font-bold">3</div>
             <span className="text-sm font-medium text-moroccan-brown/60 hidden sm:inline">S'abonner</span>
           </div>
+        </div>
+      </div>
+
+      {/* Billing Interval Toggle */}
+      <div className="max-w-xs mx-auto px-4 mb-8">
+        <div className="bg-white rounded-full border shadow-sm flex p-1">
+          <button
+            onClick={() => { setBillingInterval('weekly'); setSelectedPlan(null); }}
+            className={`flex-1 py-2 px-4 rounded-full text-sm font-semibold transition-all ${
+              billingInterval === 'weekly' ? 'bg-moroccan-red text-white shadow' : 'text-moroccan-brown/60 hover:text-moroccan-brown'
+            }`}
+          >
+            Hebdomadaire
+          </button>
+          <button
+            onClick={() => { setBillingInterval('monthly'); setSelectedPlan(null); }}
+            className={`flex-1 py-2 px-4 rounded-full text-sm font-semibold transition-all ${
+              billingInterval === 'monthly' ? 'bg-moroccan-red text-white shadow' : 'text-moroccan-brown/60 hover:text-moroccan-brown'
+            }`}
+          >
+            Mensuel
+          </button>
         </div>
       </div>
 
@@ -296,8 +325,8 @@ export default function SubscriptionPage() {
                     </div>
 
                     <div className="bg-moroccan-cream/50 rounded-xl p-3 text-center">
-                      <span className="text-sm text-moroccan-brown/60">Total mensuel</span>
-                      <p className="text-xl font-bold text-moroccan-brown">{plan.monthly_price.toFixed(2)}$ <span className="text-sm font-normal text-moroccan-brown/50">/mois</span></p>
+                      <span className="text-sm text-moroccan-brown/60">{billingInterval === 'weekly' ? 'Total hebdomadaire' : 'Total mensuel'}</span>
+                      <p className="text-xl font-bold text-moroccan-brown">{plan.monthly_price.toFixed(2)}$ <span className="text-sm font-normal text-moroccan-brown/50">/{billingInterval === 'weekly' ? 'sem' : 'mois'}</span></p>
                     </div>
                   </div>
 
@@ -324,7 +353,7 @@ export default function SubscriptionPage() {
               <div className="text-left">
                 <p className="text-sm text-moroccan-brown/60">Votre sélection</p>
                 <p className="font-display text-xl text-moroccan-brown">
-                  {selectedPlan.meals_per_week} repas/semaine — <span className="text-moroccan-red">{selectedPlan.monthly_price.toFixed(2)}$/mois</span>
+                  {selectedPlan.meals_per_week} repas/semaine — <span className="text-moroccan-red">{selectedPlan.monthly_price.toFixed(2)}$/{billingInterval === 'weekly' ? 'sem' : 'mois'}</span>
                 </p>
               </div>
               <Button
@@ -459,8 +488,8 @@ export default function SubscriptionPage() {
                   <span>{selectedPlan.price_per_meal.toFixed(2)}$/plat x {selectedPlan.meals_per_week} x 4 semaines</span>
                 </div>
                 <div className="border-t pt-2 flex justify-between font-bold text-moroccan-red text-lg">
-                  <span>Total mensuel</span>
-                  <span>{selectedPlan.monthly_price.toFixed(2)}$ /mois</span>
+                  <span>{billingInterval === 'weekly' ? 'Total hebdomadaire' : 'Total mensuel'}</span>
+                  <span>{selectedPlan.monthly_price.toFixed(2)}$ /{billingInterval === 'weekly' ? 'sem' : 'mois'}</span>
                 </div>
                 <p className="text-xs text-moroccan-brown/40">Livraison gratuite incluse. Annulable à tout moment.</p>
               </div>
@@ -508,6 +537,16 @@ export default function SubscriptionPage() {
                   className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-moroccan-brown mb-1 block">Notes (allergies, instructions...)</label>
+                <textarea
+                  placeholder="Allergies, instructions spéciales..."
+                  value={customerInfo.notes}
+                  onChange={e => setCustomerInfo(p => ({ ...p, notes: e.target.value }))}
+                  rows={2}
+                  className="w-full border border-moroccan-brown/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-moroccan-red bg-white text-moroccan-brown resize-none"
+                />
+              </div>
             </div>
 
             <Button
@@ -517,7 +556,7 @@ export default function SubscriptionPage() {
             >
               {isSubmitting
                 ? 'Redirection vers le paiement...'
-                : `S'abonner — ${selectedPlan?.monthly_price.toFixed(2)}$/mois`
+                : `S'abonner — ${selectedPlan?.monthly_price.toFixed(2)} $/${billingInterval === 'weekly' ? 'sem' : 'mois'}`
               }
             </Button>
             <div className="flex items-center justify-center gap-2 mt-1">

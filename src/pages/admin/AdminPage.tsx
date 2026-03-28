@@ -11,7 +11,7 @@ import { toast, Toaster } from 'sonner';
 import * as api from '@/lib/api';
 import type { Product, ProductVariant, Order, PromoCode, SubscriptionPlan, Subscription } from '@/lib/api';
 
-type Tab = 'products' | 'orders' | 'promos' | 'subscriptions' | 'settings';
+type Tab = 'products' | 'orders' | 'promos' | 'subscriptions' | 'reviews' | 'settings';
 type ProductForm = {
   name: string; description: string; price: string; image: string;
   category: 'entree' | 'plat' | 'dessert'; tags: string; variants: ProductVariant[]; active: boolean;
@@ -299,6 +299,9 @@ function OrdersPanel() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [detailOrder, setDetailOrder] = useState<Order | null>(null);
+  const [trackingStep, setTrackingStep] = useState<string>('1');
+  const [trackingNote, setTrackingNote] = useState<string>('');
+  const [savingTracking, setSavingTracking] = useState(false);
 
   const load = useCallback(async () => {
     try { setOrders(await api.fetchOrders()); }
@@ -333,6 +336,26 @@ function OrdersPanel() {
       toast.success('Statut mis à jour');
       load();
     } catch (err: any) { toast.error(err.message); }
+  };
+
+  const openDetail = (o: Order) => {
+    setDetailOrder(o);
+    setTrackingStep(String(o.tracking_step || 1));
+    setTrackingNote(o.tracking_note || '');
+  };
+
+  const handleSaveTracking = async () => {
+    if (!detailOrder) return;
+    setSavingTracking(true);
+    try {
+      await api.updateOrderTracking(detailOrder.id, {
+        tracking_step: parseInt(trackingStep),
+        tracking_note: trackingNote,
+      });
+      toast.success('Suivi mis à jour');
+      load();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSavingTracking(false); }
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-moroccan-red" /></div>;
@@ -419,7 +442,12 @@ function OrdersPanel() {
                   </select>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <button onClick={() => setDetailOrder(o)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600"><Eye className="w-4 h-4" /></button>
+                  <div className="flex justify-end items-center gap-2">
+                    {o.tracking_code && (
+                      <span className="font-mono text-xs text-gray-400 hidden lg:inline">{o.tracking_code}</span>
+                    )}
+                    <button onClick={() => openDetail(o)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600"><Eye className="w-4 h-4" /></button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -444,7 +472,52 @@ function OrdersPanel() {
                 <div><p className="text-gray-500">Date</p><p className="font-medium">{new Date(detailOrder.created_at).toLocaleString('fr-CA')}</p></div>
               </div>
               <div><p className="text-gray-500">Adresse</p><p className="font-medium">{detailOrder.customer_address}</p></div>
-              {detailOrder.customer_notes && <div><p className="text-gray-500">Notes</p><p className="font-medium">{detailOrder.customer_notes}</p></div>}
+              {detailOrder.customer_notes && <div><p className="text-gray-500">Notes client</p><p className="font-medium bg-yellow-50 p-2 rounded">{detailOrder.customer_notes}</p></div>}
+
+              {/* Tracking Management */}
+              {detailOrder.tracking_code && (
+                <div className="border rounded-xl p-4 bg-gray-50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-gray-900">Suivi commande</p>
+                    <span className="font-mono font-bold text-moroccan-red bg-moroccan-red/10 px-2 py-1 rounded">
+                      {detailOrder.tracking_code}
+                    </span>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Étape de livraison</label>
+                    <select
+                      value={trackingStep}
+                      onChange={e => setTrackingStep(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-moroccan-red"
+                    >
+                      <option value="1">1 — Confirmée</option>
+                      <option value="2">2 — En préparation</option>
+                      <option value="3">3 — En livraison</option>
+                      <option value="4">4 — Livrée</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Message pour le client (optionnel)</label>
+                    <textarea
+                      value={trackingNote}
+                      onChange={e => setTrackingNote(e.target.value)}
+                      rows={2}
+                      placeholder="Ex: Votre commande sera livrée entre 14h et 17h..."
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-moroccan-red resize-none"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSaveTracking}
+                    disabled={savingTracking}
+                    className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white"
+                    size="sm"
+                  >
+                    {savingTracking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+                    Mettre à jour le suivi
+                  </Button>
+                </div>
+              )}
+
               <div className="border-t pt-4">
                 <p className="font-medium text-gray-900 mb-2">Articles</p>
                 <div className="space-y-2">
@@ -626,11 +699,13 @@ type PlanForm = {
   is_popular: boolean;
   active: boolean;
   sort_order: string;
+  billing_interval: 'week' | 'month' | 'weekly' | 'monthly';
 };
 
 const emptyPlanForm: PlanForm = {
   plan_type: 'moi', name: '', meals_per_week: '3', price_per_meal: '13',
   monthly_price: '', discount_percent: '0', is_popular: false, active: true, sort_order: '0',
+  billing_interval: 'month',
 };
 
 function SubscriptionsPanel() {
@@ -675,6 +750,7 @@ function SubscriptionsPanel() {
       price_per_meal: String(p.price_per_meal), monthly_price: String(p.monthly_price),
       discount_percent: String(p.discount_percent), is_popular: p.is_popular,
       active: p.active, sort_order: String(p.sort_order),
+      billing_interval: p.billing_interval || 'month',
     });
     setDialogOpen(true);
   };
@@ -691,6 +767,7 @@ function SubscriptionsPanel() {
       is_popular: form.is_popular,
       active: form.active,
       sort_order: parseInt(form.sort_order) || 0,
+      billing_interval: form.billing_interval,
     };
     try {
       if (editingId) {
@@ -807,7 +884,10 @@ function SubscriptionsPanel() {
                     </td>
                     <td className="px-4 py-3 font-medium">{p.meals_per_week}</td>
                     <td className="px-4 py-3 font-semibold text-moroccan-red">{p.price_per_meal.toFixed(2)} $</td>
-                    <td className="px-4 py-3 hidden md:table-cell">{p.monthly_price.toFixed(2)} $</td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      {p.monthly_price.toFixed(2)} $
+                      <span className="text-xs text-gray-400 ml-1">/{(p.billing_interval || 'monthly') === 'weekly' ? 'sem' : 'mois'}</span>
+                    </td>
                     <td className="px-4 py-3">
                       <Badge className={p.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}>
                         {p.active ? 'Actif' : 'Inactif'}
@@ -848,6 +928,19 @@ function SubscriptionsPanel() {
                 </div>
                 <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-800">
                   <strong>Total mensuel :</strong> {form.meals_per_week} repas x {form.price_per_meal}$/plat x 4 semaines = <strong>{form.monthly_price}$/mois</strong>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Fréquence de facturation</label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={form.billing_interval === 'monthly'} onChange={() => set('billing_interval', 'monthly')} className="accent-moroccan-red" />
+                      <span className="text-sm">Mensuel</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={form.billing_interval === 'weekly'} onChange={() => set('billing_interval', 'weekly')} className="accent-moroccan-red" />
+                      <span className="text-sm">Hebdomadaire</span>
+                    </label>
+                  </div>
                 </div>
                 <Input label="Ordre d'affichage" type="number" min="0" value={form.sort_order} onChange={e => set('sort_order', e.target.value)} />
                 <div className="flex gap-6">
@@ -947,15 +1040,6 @@ function SettingsPanel() {
     delivery_banner_enabled: true,
     subscription_enabled: true,
     subscription_free_delivery: true,
-    box_onetime_enabled: true,
-    box_subscription_enabled: true,
-    box_min_entrees: '0',
-    box_max_entrees: '10',
-    box_min_plats: '1',
-    box_max_plats: '10',
-    box_min_desserts: '0',
-    box_max_desserts: '10',
-    box_sub_meal_counts: '3,5,7',
   });
 
   const load = useCallback(async () => {
@@ -970,15 +1054,6 @@ function SettingsPanel() {
         delivery_banner_enabled: s.delivery_banner_enabled === 'true',
         subscription_enabled: s.subscription_enabled === 'true',
         subscription_free_delivery: s.subscription_free_delivery === 'true',
-        box_onetime_enabled: s.box_onetime_enabled !== 'false',
-        box_subscription_enabled: s.box_subscription_enabled !== 'false',
-        box_min_entrees: s.box_min_entrees || '0',
-        box_max_entrees: s.box_max_entrees || '10',
-        box_min_plats: s.box_min_plats || '1',
-        box_max_plats: s.box_max_plats || '10',
-        box_min_desserts: s.box_min_desserts || '0',
-        box_max_desserts: s.box_max_desserts || '10',
-        box_sub_meal_counts: s.box_sub_meal_counts || '3,5,7',
       });
     } catch { toast.error('Impossible de charger les paramètres'); }
     finally { setLoading(false); }
@@ -998,15 +1073,6 @@ function SettingsPanel() {
         delivery_banner_enabled: String(form.delivery_banner_enabled),
         subscription_enabled: String(form.subscription_enabled),
         subscription_free_delivery: String(form.subscription_free_delivery),
-        box_onetime_enabled: String(form.box_onetime_enabled),
-        box_subscription_enabled: String(form.box_subscription_enabled),
-        box_min_entrees: form.box_min_entrees,
-        box_max_entrees: form.box_max_entrees,
-        box_min_plats: form.box_min_plats,
-        box_max_plats: form.box_max_plats,
-        box_min_desserts: form.box_min_desserts,
-        box_max_desserts: form.box_max_desserts,
-        box_sub_meal_counts: form.box_sub_meal_counts,
       });
       toast.success('Paramètres sauvegardés');
     } catch (err: any) { toast.error(err.message); }
@@ -1148,85 +1214,227 @@ function SettingsPanel() {
         </div>
       </div>
 
-      {/* Box Builder Settings */}
-      <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-            <Package className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <h3 className="font-bold text-gray-900">Box Builder</h3>
-            <p className="text-xs text-gray-500">Configurez le parcours d'achat guidé sur la page d'accueil</p>
-          </div>
-        </div>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.box_onetime_enabled}
-                onChange={e => setForm(f => ({ ...f, box_onetime_enabled: e.target.checked }))}
-                className="w-5 h-5 accent-moroccan-red" />
-              <span className="text-sm font-medium text-gray-700">Activer l'achat unique</span>
-            </label>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.box_subscription_enabled}
-                onChange={e => setForm(f => ({ ...f, box_subscription_enabled: e.target.checked }))}
-                className="w-5 h-5 accent-moroccan-red" />
-              <span className="text-sm font-medium text-gray-700">Activer l'abonnement</span>
-            </label>
-          </div>
-
-          <div className="border-t pt-4">
-            <p className="text-sm font-medium text-gray-700 mb-3">Limites par catégorie (achat unique)</p>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Entrées</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="Min" type="number" min="0" max="20" value={form.box_min_entrees}
-                    onChange={e => setForm(f => ({ ...f, box_min_entrees: e.target.value }))} />
-                  <Input label="Max" type="number" min="1" max="20" value={form.box_max_entrees}
-                    onChange={e => setForm(f => ({ ...f, box_max_entrees: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Plats</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="Min" type="number" min="0" max="20" value={form.box_min_plats}
-                    onChange={e => setForm(f => ({ ...f, box_min_plats: e.target.value }))} />
-                  <Input label="Max" type="number" min="1" max="20" value={form.box_max_plats}
-                    onChange={e => setForm(f => ({ ...f, box_max_plats: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Desserts</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="Min" type="number" min="0" max="20" value={form.box_min_desserts}
-                    onChange={e => setForm(f => ({ ...f, box_min_desserts: e.target.value }))} />
-                  <Input label="Max" type="number" min="1" max="20" value={form.box_max_desserts}
-                    onChange={e => setForm(f => ({ ...f, box_max_desserts: e.target.value }))} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t pt-4">
-            <Input label="Options de repas/semaine (abonnement, séparées par virgule)"
-              type="text" placeholder="3,5,7" value={form.box_sub_meal_counts}
-              onChange={e => setForm(f => ({ ...f, box_sub_meal_counts: e.target.value }))} />
-          </div>
-
-          <div className="bg-red-50 rounded-lg p-3 text-sm text-red-800">
-            <strong>Aperçu :</strong>
-            {form.box_onetime_enabled && ` Achat unique activé (Entrées: ${form.box_min_entrees}-${form.box_max_entrees}, Plats: ${form.box_min_plats}-${form.box_max_plats}, Desserts: ${form.box_min_desserts}-${form.box_max_desserts}).`}
-            {form.box_subscription_enabled && ` Abonnement activé (${form.box_sub_meal_counts} repas/sem).`}
-            {!form.box_onetime_enabled && !form.box_subscription_enabled && ' Aucun mode activé — le sélecteur ne sera pas affiché.'}
-          </div>
-        </div>
-      </div>
-
       <Button onClick={handleSave} disabled={saving} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white px-8 py-5">
         {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
         Sauvegarder les paramètres
       </Button>
+    </div>
+  );
+}
+
+// ── Reviews Panel ──
+type ReviewForm = {
+  name: string; rating: string; text: string; avatar: string; image_url: string; active: boolean; sort_order: string;
+};
+const emptyReview: ReviewForm = { name: '', rating: '5', text: '', avatar: '', image_url: '', active: true, sort_order: '0' };
+
+function reviewToForm(r: api.Review): ReviewForm {
+  return {
+    name: r.name, rating: String(r.rating), text: r.text, avatar: r.avatar || '',
+    image_url: r.image_url || '', active: r.active, sort_order: String(r.sort_order),
+  };
+}
+
+function ReviewsPanel() {
+  const [reviews, setReviews] = useState<api.Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<ReviewForm>(emptyReview);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try { setReviews(await api.fetchAdminReviews()); }
+    catch { toast.error('Impossible de charger les avis'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openAdd = () => { setEditingId(null); setForm(emptyReview); setDialogOpen(true); };
+  const openEdit = (r: api.Review) => { setEditingId(r.id); setForm(reviewToForm(r)); setDialogOpen(true); };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const data = {
+      name: form.name.trim(),
+      rating: parseInt(form.rating) || 5,
+      text: form.text.trim(),
+      avatar: form.avatar.trim() || form.name.charAt(0).toUpperCase(),
+      image_url: form.image_url,
+      active: form.active,
+      sort_order: parseInt(form.sort_order) || 0,
+    };
+    try {
+      if (editingId) { await api.updateReview(editingId, data); toast.success('Avis mis à jour'); }
+      else { await api.createReview(data); toast.success('Avis créé'); }
+      setDialogOpen(false);
+      load();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Supprimer cet avis ?')) return;
+    try { await api.deleteReview(id); toast.success('Avis supprimé'); load(); }
+    catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleToggle = async (r: api.Review) => {
+    try { await api.updateReview(r.id, { active: !r.active }); load(); }
+    catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { toast.error('Image trop grande (max 500KB)'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm(f => ({ ...f, image_url: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const set = (key: keyof ReviewForm, val: any) => setForm(f => ({ ...f, [key]: val }));
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-moroccan-red" /></div>;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Avis Clients</h2>
+          <p className="text-gray-500 text-sm">{reviews.length} avis ({reviews.filter(r => r.active).length} actifs)</p>
+        </div>
+        <Button onClick={openAdd} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white">
+          <Plus className="w-4 h-4 mr-1" /> Nouvel Avis
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {reviews.map(r => (
+          <div key={r.id} className={`bg-white rounded-xl shadow-sm border p-4 transition-opacity ${!r.active ? 'opacity-50' : ''}`}>
+            <div className="flex items-start gap-3 mb-3">
+              {r.image_url ? (
+                <img src={r.image_url} alt={r.name} className="w-10 h-10 rounded-full object-cover" />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-moroccan-red/10 text-moroccan-red flex items-center justify-center font-bold text-sm">
+                  {r.avatar || r.name.charAt(0)}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-900 text-sm truncate">{r.name}</h3>
+                  <button onClick={() => handleToggle(r)}>
+                    <Badge className={r.active ? 'bg-green-100 text-green-700 cursor-pointer text-xs' : 'bg-gray-100 text-gray-500 cursor-pointer text-xs'}>
+                      {r.active ? 'Actif' : 'Masqué'}
+                    </Badge>
+                  </button>
+                </div>
+                <div className="flex gap-0.5 mt-0.5">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Star key={i} className={`w-3 h-3 ${i < r.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200'}`} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 line-clamp-3">{r.text}</p>
+            <div className="flex justify-end gap-1 mt-3 pt-3 border-t">
+              <button onClick={() => openEdit(r)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {reviews.length === 0 && (
+        <div className="text-center py-12 text-gray-400">
+          <Star className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p>Aucun avis pour le moment</p>
+        </div>
+      )}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Modifier l\'avis' : 'Nouvel avis'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
+              <input value={form.name} onChange={e => set('name', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red outline-none"
+                placeholder="Fatima B." />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Note (1-5)</label>
+              <div className="flex gap-1">
+                {[1,2,3,4,5].map(n => (
+                  <button key={n} onClick={() => set('rating', String(n))} className="p-1">
+                    <Star className={`w-6 h-6 transition-colors ${n <= parseInt(form.rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200'}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Avis</label>
+              <textarea value={form.text} onChange={e => set('text', e.target.value)} rows={3}
+                className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red outline-none resize-none"
+                placeholder="Un excellent repas..." />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Photo de profil</label>
+              <div className="flex items-center gap-3">
+                {form.image_url ? (
+                  <div className="relative">
+                    <img src={form.image_url} alt="Preview" className="w-16 h-16 rounded-full object-cover" />
+                    <button onClick={() => set('image_url', '')}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center">
+                      <XCircle className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
+                    <ImageIcon className="w-6 h-6" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="text-sm" />
+                  <p className="text-xs text-gray-400 mt-1">Max 500KB. Laissez vide pour utiliser l'initiale.</p>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Initiale avatar (si pas de photo)</label>
+              <input value={form.avatar} onChange={e => set('avatar', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red outline-none"
+                placeholder="F" maxLength={2} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ordre d'affichage</label>
+                <input type="number" value={form.sort_order} onChange={e => set('sort_order', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-moroccan-red/20 focus:border-moroccan-red outline-none" />
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={form.active} onChange={e => set('active', e.target.checked)}
+                    className="w-4 h-4 rounded text-moroccan-red focus:ring-moroccan-red" />
+                  <span className="text-sm font-medium text-gray-700">Visible sur le site</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-6">
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Annuler</Button>
+            <Button onClick={handleSave} disabled={saving || !form.name || !form.text} className="bg-moroccan-red hover:bg-moroccan-red-dark text-white">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+              {editingId ? 'Sauvegarder' : 'Créer'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1248,6 +1456,7 @@ export default function AdminPage() {
     { key: 'products', label: 'Produits', icon: Package },
     { key: 'promos', label: 'Promos', icon: Tag },
     { key: 'subscriptions', label: 'Abonnements', icon: CalendarCheck },
+    { key: 'reviews', label: 'Avis', icon: Star },
     { key: 'settings', label: 'Paramètres', icon: Settings },
   ];
 
@@ -1286,6 +1495,7 @@ export default function AdminPage() {
           {activeTab === 'orders' && <OrdersPanel />}
           {activeTab === 'promos' && <PromoCodesPanel />}
           {activeTab === 'subscriptions' && <SubscriptionsPanel />}
+          {activeTab === 'reviews' && <ReviewsPanel />}
           {activeTab === 'settings' && <SettingsPanel />}
         </main>
       </div>

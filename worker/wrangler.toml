@@ -1,0 +1,15 @@
+name = "bledcrate-api"
+main = "worker.js"
+compatibility_date = "2026-03-23"
+
+routes = [
+  { pattern = "bledcrate.ca/0x/*", zone_name = "bledcrate.ca" }
+]
+
+[vars]
+FRONTEND_URL = "https://bledcrate.ca"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bledcrate-db"
+database_id = "b45363d1-602e-4dd4-924a-34a5c159ee63"

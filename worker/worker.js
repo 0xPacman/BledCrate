@@ -151,6 +151,67 @@ async function handleDeleteProduct(request, env, id) {
   return new Response(null, { status: 204, headers: CORS });
 }
 
+// Reviews (public)
+async function handleGetPublicReviews(env) {
+  const { results } = await env.DB.prepare('SELECT * FROM reviews WHERE active = 1 ORDER BY sort_order ASC').all();
+  return json(results.map(r => ({ ...r, active: !!r.active })));
+}
+
+// Reviews (admin)
+async function handleGetAllReviews(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const { results } = await env.DB.prepare('SELECT * FROM reviews ORDER BY sort_order ASC').all();
+  return json(results.map(r => ({ ...r, active: !!r.active })));
+}
+
+async function handleCreateReview(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const data = await request.json();
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO reviews (id, name, rating, text, avatar, image_url, active, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(id, data.name, data.rating || 5, data.text, data.avatar || '', data.image_url || '', data.active ? 1 : 0, data.sort_order || 0).run();
+  return json({ id, ...data });
+}
+
+async function handleUpdateReview(request, env, id) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const data = await request.json();
+  const sets = [];
+  const vals = [];
+  if (data.name !== undefined) { sets.push('name = ?'); vals.push(data.name); }
+  if (data.rating !== undefined) { sets.push('rating = ?'); vals.push(data.rating); }
+  if (data.text !== undefined) { sets.push('text = ?'); vals.push(data.text); }
+  if (data.avatar !== undefined) { sets.push('avatar = ?'); vals.push(data.avatar); }
+  if (data.image_url !== undefined) { sets.push('image_url = ?'); vals.push(data.image_url); }
+  if (data.active !== undefined) { sets.push('active = ?'); vals.push(data.active ? 1 : 0); }
+  if (data.sort_order !== undefined) { sets.push('sort_order = ?'); vals.push(data.sort_order); }
+  if (sets.length === 0) return json({ id });
+  vals.push(id);
+  await env.DB.prepare(`UPDATE reviews SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+  return json({ id, ...data });
+}
+
+async function handleDeleteReview(request, env, id) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  await env.DB.prepare('DELETE FROM reviews WHERE id = ?').bind(id).run();
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
+
+// Upload review image (base64 → data URL stored in DB)
+async function handleUploadReviewImage(request, env) {
+  const user = await requireAuth(request, env);
+  if (!user) return err('Non autorisé', 401);
+  const { image } = await request.json(); // expects base64 data URL
+  if (!image) return err('Image manquante', 400);
+  // Just return it back — stored directly in the review's image_url field
+  return json({ url: image });
+}
+
 // Orders
 async function handleGetOrders(request, env) {
   const user = await requireAuth(request, env);
@@ -240,21 +301,29 @@ async function handleCreateSubscriptionPlan(request, env) {
   const id = uuid();
   const mealsPerWeek = parseInt(data.meals_per_week) || 3;
   const pricePerMeal = parseFloat(data.price_per_meal) || 12;
-  const monthlyPrice = parseFloat(data.monthly_price) || (pricePerMeal * mealsPerWeek * 4);
+  const billingInterval = (data.billing_interval === 'weekly' || data.billing_interval === 'week') ? 'week' : 'month';
+  // billing_price = the amount charged per cycle
+  const billingPrice = parseFloat(data.monthly_price) || (
+    billingInterval === 'week'
+      ? pricePerMeal * mealsPerWeek
+      : pricePerMeal * mealsPerWeek * 4
+  );
+  const stripeInterval = billingInterval;
 
   // Create Stripe Product + Price for recurring billing
   let stripePriceId = null;
   try {
+    const intervalLabel = billingInterval === 'week' ? '/sem' : '/mois';
     const product = await stripePost('/products', {
-      name: `BledCrate - ${data.name || data.plan_type} (${mealsPerWeek} repas/sem)`,
-      metadata: { plan_id: id },
+      name: `BledCrate - ${data.name || data.plan_type} (${mealsPerWeek} repas${intervalLabel})`,
+      metadata: { plan_id: id, billing_interval: billingInterval },
     }, env.STRIPE_SECRET_KEY);
 
     const price = await stripePost('/prices', {
       product: product.id,
-      unit_amount: Math.round(monthlyPrice * 100),
+      unit_amount: Math.round(billingPrice * 100),
       currency: 'cad',
-      recurring: { interval: 'month' },
+      recurring: { interval: stripeInterval },
     }, env.STRIPE_SECRET_KEY);
 
     stripePriceId = price.id;
@@ -263,14 +332,14 @@ async function handleCreateSubscriptionPlan(request, env) {
   }
 
   await env.DB.prepare(
-    'INSERT INTO subscription_plans (id, plan_type, name, meals_per_week, price_per_meal, monthly_price, discount_percent, is_popular, stripe_price_id, active, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO subscription_plans (id, plan_type, name, meals_per_week, price_per_meal, monthly_price, discount_percent, is_popular, stripe_price_id, active, sort_order, billing_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(
-    id, data.plan_type || 'moi', data.name || '', mealsPerWeek, pricePerMeal, monthlyPrice,
+    id, data.plan_type || 'moi', data.name || '', mealsPerWeek, pricePerMeal, billingPrice,
     parseFloat(data.discount_percent) || 0, data.is_popular ? 1 : 0,
-    stripePriceId, data.active !== false ? 1 : 0, parseInt(data.sort_order) || 0
+    stripePriceId, data.active !== false ? 1 : 0, parseInt(data.sort_order) || 0, billingInterval
   ).run();
 
-  return json({ id, stripe_price_id: stripePriceId, ...data });
+  return json({ id, stripe_price_id: stripePriceId, billing_interval: billingInterval, ...data });
 }
 
 async function handleUpdateSubscriptionPlan(request, env, id) {
@@ -289,21 +358,26 @@ async function handleUpdateSubscriptionPlan(request, env, id) {
   if (data.is_popular !== undefined) { sets.push('is_popular = ?'); vals.push(data.is_popular ? 1 : 0); }
   if (data.active !== undefined) { sets.push('active = ?'); vals.push(data.active ? 1 : 0); }
   if (data.sort_order !== undefined) { sets.push('sort_order = ?'); vals.push(parseInt(data.sort_order)); }
+  if (data.billing_interval !== undefined) { sets.push('billing_interval = ?'); vals.push((data.billing_interval === 'weekly' || data.billing_interval === 'week') ? 'week' : 'month'); }
 
-  // If price changed, create new Stripe Price (can't update existing)
-  if (data.monthly_price !== undefined) {
+  // If price or interval changed, create new Stripe Price (can't update existing)
+  if (data.monthly_price !== undefined || data.billing_interval !== undefined) {
     try {
       const plan = await env.DB.prepare('SELECT * FROM subscription_plans WHERE id = ?').bind(id).first();
       if (plan) {
+        const newInterval = data.billing_interval ? ((data.billing_interval === 'weekly' || data.billing_interval === 'week') ? 'week' : 'month') : (plan.billing_interval || 'month');
+        const stripeInterval = newInterval;
+        const newPrice = parseFloat(data.monthly_price) || plan.monthly_price;
+        const intervalLabel = newInterval === 'week' ? '/sem' : '/mois';
         const product = await stripePost('/products', {
-          name: `BledCrate - ${data.name || plan.name} (${data.meals_per_week || plan.meals_per_week} repas/sem)`,
-          metadata: { plan_id: id },
+          name: `BledCrate - ${data.name || plan.name} (${data.meals_per_week || plan.meals_per_week} repas${intervalLabel})`,
+          metadata: { plan_id: id, billing_interval: newInterval },
         }, env.STRIPE_SECRET_KEY);
         const price = await stripePost('/prices', {
           product: product.id,
-          unit_amount: Math.round(parseFloat(data.monthly_price) * 100),
+          unit_amount: Math.round(newPrice * 100),
           currency: 'cad',
-          recurring: { interval: 'month' },
+          recurring: { interval: stripeInterval },
         }, env.STRIPE_SECRET_KEY);
         sets.push('stripe_price_id = ?');
         vals.push(price.id);
@@ -328,16 +402,98 @@ async function handleDeleteSubscriptionPlan(request, env, id) {
 
 // ── Subscribe (create Stripe Checkout in subscription mode) ──
 async function handleSubscribe(request, env) {
-  const { plan_id, customer } = await request.json();
+  const { plan_id, customer, extras, extras_mode } = await request.json();
   if (!plan_id || !customer || !customer.email || !customer.name) return err('Données manquantes');
 
   const plan = await env.DB.prepare('SELECT * FROM subscription_plans WHERE id = ? AND active = 1').bind(plan_id).first();
   if (!plan) return err('Plan non trouvé', 404);
   if (!plan.stripe_price_id) return err('Plan non configuré pour le paiement', 400);
 
+  // Normalize billing interval for Stripe (accepts 'week' or 'month', not 'weekly'/'monthly')
+  const stripeInterval = (plan.billing_interval === 'week' || plan.billing_interval === 'weekly') ? 'week' : 'month';
+
+  // Calculate extras total (per-delivery price)
+  const extrasPerDelivery = (extras && extras.length > 0)
+    ? extras.reduce((sum, e) => sum + e.price * e.qty, 0)
+    : 0;
+
+  // Extras are priced per delivery; ~4 deliveries per month for monthly billing
+  const deliveriesPerPeriod = (stripeInterval === 'week') ? 1 : 4;
+  const recurringExtrasPerPeriod = (extras_mode === 'recurring') ? extrasPerDelivery * deliveriesPerPeriod : 0;
+  const onetimeExtrasTotal = (extras_mode === 'onetime') ? extrasPerDelivery : 0;
+
+  // Tax on recurring portion (plan + recurring extras per billing period)
+  const planPrice = plan.monthly_price || 0;
+  const recurringTaxable = planPrice + recurringExtrasPerPeriod;
+  const recurringTaxAmount = Math.round(recurringTaxable * 0.15 * 100) / 100;
+
+  // Tax on one-time extras
+  const onetimeTaxAmount = Math.round(onetimeExtrasTotal * 0.15 * 100) / 100;
+
+  // Build line items — start with the subscription plan
+  const line_items = [{ price: plan.stripe_price_id, quantity: 1 }];
+
+  // Add recurring extras as recurring line items (price * deliveries per period)
+  if (extras && extras.length > 0 && extras_mode === 'recurring') {
+    for (const extra of extras) {
+      line_items.push({
+        price_data: {
+          currency: 'cad',
+          product_data: { name: `Extra: ${extra.name} (x${deliveriesPerPeriod}/période)` },
+          unit_amount: Math.round(extra.price * deliveriesPerPeriod * 100),
+          recurring: { interval: stripeInterval },
+        },
+        quantity: extra.qty,
+      });
+    }
+  }
+
+  // Add recurring tax line item (TPS + TVQ 15%)
+  if (recurringTaxAmount > 0) {
+    line_items.push({
+      price_data: {
+        currency: 'cad',
+        product_data: { name: 'Taxes (TPS + TVQ 15%)' },
+        unit_amount: Math.round(recurringTaxAmount * 100),
+        recurring: { interval: stripeInterval },
+      },
+      quantity: 1,
+    });
+  }
+
+  // Add one-time extras as non-recurring line items (Stripe supports this in subscription checkout)
+  if (extras && extras.length > 0 && extras_mode === 'onetime') {
+    for (const extra of extras) {
+      line_items.push({
+        price_data: {
+          currency: 'cad',
+          product_data: { name: `Extra (1x): ${extra.name}` },
+          unit_amount: Math.round(extra.price * 100),
+        },
+        quantity: extra.qty,
+      });
+    }
+    // Add one-time tax
+    if (onetimeTaxAmount > 0) {
+      line_items.push({
+        price_data: {
+          currency: 'cad',
+          product_data: { name: 'Taxes extras (TPS + TVQ 15%)' },
+          unit_amount: Math.round(onetimeTaxAmount * 100),
+        },
+        quantity: 1,
+      });
+    }
+  }
+
+  // Build extras summary for metadata
+  const extrasSummary = extras && extras.length > 0
+    ? extras.map(e => `${e.name} x${e.qty}`).join(', ')
+    : '';
+
   const sessionParams = {
     mode: 'subscription',
-    line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+    line_items,
     success_url: `${env.FRONTEND_URL}/abonnement/merci?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${env.FRONTEND_URL}/#menu`,
     customer_email: customer.email,
@@ -346,6 +502,9 @@ async function handleSubscribe(request, env) {
       customer_name: customer.name,
       customer_phone: customer.phone || '',
       customer_address: customer.address || '',
+      extras: extrasSummary,
+      extras_mode: extras_mode || '',
+      tax_amount: String(recurringTaxAmount + onetimeTaxAmount),
     },
     subscription_data: {
       metadata: {
@@ -353,6 +512,8 @@ async function handleSubscribe(request, env) {
         customer_name: customer.name,
         customer_phone: customer.phone || '',
         customer_address: customer.address || '',
+        extras: extrasSummary,
+        extras_mode: extras_mode || '',
       },
     },
   };
@@ -460,7 +621,7 @@ async function handleCheckout(request, env) {
   const baseFee = parseFloat(settings.delivery_fee || '5');
   const deliveryFee = afterDiscounts >= freeThreshold ? 0 : baseFee;
 
-  // Build Stripe line items (pre-tax prices from client)
+  // Build Stripe line items (pre-tax prices)
   const line_items = items.map(item => ({
     price_data: {
       currency: 'cad',
@@ -470,7 +631,7 @@ async function handleCheckout(request, env) {
     quantity: item.quantity,
   }));
 
-  // Add delivery fee as a line item if applicable
+  // Add delivery fee line item
   if (deliveryFee > 0) {
     line_items.push({
       price_data: {
@@ -482,7 +643,7 @@ async function handleCheckout(request, env) {
     });
   }
 
-  // Calculate tax (15% TPS+TVQ) on the post-discount, post-delivery total
+  // Add tax line item (15% TPS+TVQ on post-discount + delivery total)
   const taxableAmount = afterDiscounts + deliveryFee;
   const taxAmount = Math.round(taxableAmount * 0.15 * 100) / 100;
   if (taxAmount > 0) {
@@ -496,11 +657,13 @@ async function handleCheckout(request, env) {
     });
   }
 
+  // Build session params
+  const frontendUrl = env.FRONTEND_URL || 'https://bledcrate.ca';
   const sessionParams = {
     mode: 'payment',
     line_items,
-    success_url: `${env.FRONTEND_URL}/merci`,
-    cancel_url: env.FRONTEND_URL,
+    success_url: `${frontendUrl}/merci`,
+    cancel_url: frontendUrl,
     customer_email: customer.email,
     metadata: {
       customer_name: customer.name,
@@ -517,7 +680,7 @@ async function handleCheckout(request, env) {
     },
   };
 
-  // If there's any discount, create a Stripe coupon
+  // Apply discount as a Stripe coupon (reduces item line items only, not tax/delivery)
   const combinedDiscountAmount = bundleDiscount + promoDiscount;
   if (combinedDiscountAmount > 0) {
     const coupon = await stripePost('/coupons', {
@@ -632,7 +795,9 @@ export default {
     if (request.method === 'OPTIONS') return corsPreFlight();
 
     const url = new URL(request.url);
-    const path = url.pathname;
+    // Strip /0x prefix so routes match /api/...
+    const rawPath = url.pathname;
+    const path = rawPath.startsWith('/0x') ? rawPath.slice(3) || '/' : rawPath;
     const method = request.method;
 
     try {
@@ -672,6 +837,14 @@ export default {
         const subId = path.split('/')[3];
         return handleCancelSubscription(request, env, subId);
       }
+
+      // Reviews
+      if (path === '/api/reviews' && method === 'GET') return handleGetPublicReviews(env);
+      if (path === '/api/reviews/admin' && method === 'GET') return handleGetAllReviews(request, env);
+      if (path === '/api/reviews' && method === 'POST') return handleCreateReview(request, env);
+      if (path === '/api/reviews/upload' && method === 'POST') return handleUploadReviewImage(request, env);
+      if (path.startsWith('/api/reviews/') && method === 'PUT') return handleUpdateReview(request, env, path.split('/')[3]);
+      if (path.startsWith('/api/reviews/') && method === 'DELETE') return handleDeleteReview(request, env, path.split('/')[3]);
 
       // Settings
       if (path === '/api/settings' && method === 'GET') return handleGetPublicSettings(env);

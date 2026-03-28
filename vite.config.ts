@@ -10,6 +10,13 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    proxy: {
+      '/0x/api': {
+        target: 'https://bledcrate.ca',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
   resolve: {
     alias: {

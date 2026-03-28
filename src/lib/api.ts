@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = import.meta.env.VITE_API_URL || '/0x';
 
 // Types
 export interface ProductVariant {
@@ -32,6 +32,18 @@ export interface Order {
   total: number;
   promo_code: string | null;
   status: string;
+  created_at: string;
+  tracking_code?: string;
+  tracking_step?: number;
+  tracking_note?: string;
+}
+
+export interface OrderTracking {
+  tracking_code: string;
+  tracking_step: number;
+  tracking_note: string;
+  status: string;
+  customer_name: string;
   created_at: string;
 }
 
@@ -85,6 +97,7 @@ export interface SubscriptionPlan {
   stripe_price_id: string | null;
   active: boolean;
   sort_order: number;
+  billing_interval: 'week' | 'month' | 'weekly' | 'monthly';
   created_at: string;
 }
 
@@ -217,4 +230,39 @@ export const cancelSubscription = (id: string) =>
 export const createSubscription = (data: {
   plan_id: string;
   customer: { name: string; email: string; phone: string; address: string };
+  extras?: { name: string; qty: number; price: number; category: string }[];
+  extras_mode?: 'recurring' | 'onetime';
 }) => api<{ url: string }>('/api/subscribe', { method: 'POST', body: JSON.stringify(data) });
+
+// Reviews
+export interface Review {
+  id: string;
+  name: string;
+  rating: number;
+  text: string;
+  avatar: string;
+  image_url: string;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export const fetchPublicReviews = () => api<Review[]>('/api/reviews');
+export const fetchAdminReviews = () => api<Review[]>('/api/reviews/admin');
+export const createReview = (r: Partial<Review>) =>
+  api<Review>('/api/reviews', { method: 'POST', body: JSON.stringify(r) });
+export const updateReview = (id: string, r: Partial<Review>) =>
+  api<Review>(`/api/reviews/${id}`, { method: 'PUT', body: JSON.stringify(r) });
+export const deleteReview = (id: string) =>
+  api<void>(`/api/reviews/${id}`, { method: 'DELETE' });
+
+// Order Tracking (public)
+export const fetchTrackOrder = (code: string) =>
+  api<OrderTracking>(`/api/track/${code.toUpperCase()}`);
+
+// Order Tracking (admin)
+export const updateOrderTracking = (id: string, data: { tracking_step?: number; tracking_note?: string }) =>
+  api<{ id: string; tracking_step?: number; tracking_note?: string }>(`/api/orders/${id}/tracking`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
