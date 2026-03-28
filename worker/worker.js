@@ -643,15 +643,27 @@ async function handleCheckout(request, env) {
     });
   }
 
-  // Add tax line item (15% TPS+TVQ on post-discount + delivery total)
+  // Add tax line items (TPS 5% + TVQ 9.975%)
   const taxableAmount = afterDiscounts + deliveryFee;
-  const taxAmount = Math.round(taxableAmount * 0.15 * 100) / 100;
-  if (taxAmount > 0) {
+  const tpsAmount = Math.round(taxableAmount * 0.05 * 100) / 100;
+  const tvqAmount = Math.round(taxableAmount * 0.09975 * 100) / 100;
+  const taxAmount = Math.round((tpsAmount + tvqAmount) * 100) / 100;
+  if (tpsAmount > 0) {
     line_items.push({
       price_data: {
         currency: 'cad',
-        product_data: { name: 'Taxes (TPS + TVQ 15%)' },
-        unit_amount: Math.round(taxAmount * 100),
+        product_data: { name: 'TPS (5%)' },
+        unit_amount: Math.round(tpsAmount * 100),
+      },
+      quantity: 1,
+    });
+  }
+  if (tvqAmount > 0) {
+    line_items.push({
+      price_data: {
+        currency: 'cad',
+        product_data: { name: 'TVQ (9.975%)' },
+        unit_amount: Math.round(tvqAmount * 100),
       },
       quantity: 1,
     });
@@ -662,7 +674,7 @@ async function handleCheckout(request, env) {
   const sessionParams = {
     mode: 'payment',
     line_items,
-    success_url: `${frontendUrl}/merci`,
+    success_url: `${frontendUrl}/merci?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: frontendUrl,
     customer_email: customer.email,
     metadata: {
@@ -741,14 +753,18 @@ async function handleWebhook(request, env) {
       const total = (session.amount_total || 0) / 100;
       const id = uuid();
 
+      // Generate tracking code: BC-XXXXXX (6 random alphanumeric chars)
+      const trackingCode = 'BC-' + Array.from(crypto.getRandomValues(new Uint8Array(3)))
+        .map(b => b.toString(36).padStart(2, '0')).join('').toUpperCase().slice(0, 6);
+
       await env.DB.prepare(
-        'INSERT INTO orders (id, stripe_session_id, stripe_payment_intent, customer_name, customer_email, customer_phone, customer_address, customer_notes, items, subtotal, discount, total, promo_code, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO orders (id, stripe_session_id, stripe_payment_intent, customer_name, customer_email, customer_phone, customer_address, customer_notes, items, subtotal, discount, total, promo_code, status, tracking_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
         id, session.id, session.payment_intent || '',
         meta.customer_name || '', session.customer_email || '',
         meta.customer_phone || '', meta.customer_address || '', meta.customer_notes || '',
         meta.items_json || '[]', subtotal, discount, total,
-        meta.promo_code || null, 'paid'
+        meta.promo_code || null, 'paid', trackingCode
       ).run();
 
       if (meta.promo_code) {
@@ -812,6 +828,13 @@ export default {
 
       // Orders
       if (path === '/api/orders' && method === 'GET') return handleGetOrders(request, env);
+      if (path === '/api/orders/by-session' && method === 'GET') {
+        const sessionId = new URL(request.url).searchParams.get('session_id');
+        if (!sessionId) return err('session_id manquant', 400);
+        const order = await env.DB.prepare('SELECT id, tracking_code, customer_name, total, items, created_at FROM orders WHERE stripe_session_id = ?').bind(sessionId).first();
+        if (!order) return err('Commande non trouvée', 404);
+        return json({ ...order, items: JSON.parse(order.items || '[]') });
+      }
       if (path.startsWith('/api/orders/') && method === 'PATCH') return handleUpdateOrder(request, env, path.split('/')[3]);
 
       // Promo Codes

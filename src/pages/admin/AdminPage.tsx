@@ -409,7 +409,7 @@ function OrdersPanel() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Commande</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Suivi</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Articles</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
@@ -421,7 +421,11 @@ function OrdersPanel() {
             {filtered.map(o => (
               <tr key={o.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
-                  <p className="font-mono text-xs text-gray-500">#{o.id.slice(0, 8)}</p>
+                  {o.tracking_code ? (
+                    <p className="font-mono text-xs font-bold text-moroccan-brown">{o.tracking_code}</p>
+                  ) : (
+                    <p className="font-mono text-xs text-gray-500">#{o.id.slice(0, 8)}</p>
+                  )}
                   <p className="text-xs text-gray-400">{new Date(o.created_at).toLocaleDateString('fr-CA')}</p>
                 </td>
                 <td className="px-4 py-3">
@@ -442,12 +446,7 @@ function OrdersPanel() {
                   </select>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <div className="flex justify-end items-center gap-2">
-                    {o.tracking_code && (
-                      <span className="font-mono text-xs text-gray-400 hidden lg:inline">{o.tracking_code}</span>
-                    )}
-                    <button onClick={() => openDetail(o)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600"><Eye className="w-4 h-4" /></button>
-                  </div>
+                  <button onClick={() => openDetail(o)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600"><Eye className="w-4 h-4" /></button>
                 </td>
               </tr>
             ))}

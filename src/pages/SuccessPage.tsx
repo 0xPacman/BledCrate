@@ -1,48 +1,63 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { CheckCircle, ShoppingCart, Package } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { CheckCircle, ShoppingCart, Package, Copy, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-interface SavedOrder {
+const API_BASE = import.meta.env.VITE_API_URL || 'https://bledcrate.ca';
+
+interface OrderData {
   id: string;
-  items: { name: string; variant?: string; quantity: number; price: number }[];
-  customer: { name: string; email: string };
+  tracking_code: string;
+  customer_name: string;
   total: number;
-  promo: string | null;
-  date: string;
-  status: string;
+  items: { name: string; variant?: string; quantity: number; price: number }[];
+  created_at: string;
 }
 
 export default function SuccessPage() {
-  const [order, setOrder] = useState<SavedOrder | null>(null);
+  const [searchParams] = useSearchParams();
+  const sessionId = searchParams.get('session_id');
+  const [order, setOrder] = useState<OrderData | null>(null);
+  const [loading, setLoading] = useState(!!sessionId);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // Recover pending order data saved before Stripe redirect
-    const pendingRaw = localStorage.getItem('bledcrate_pending_order');
-    if (!pendingRaw) return;
+    if (!sessionId) { setLoading(false); return; }
 
-    try {
-      const pending = JSON.parse(pendingRaw);
-      const savedOrder: SavedOrder = {
-        id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
-        ...pending,
-        status: 'paid',
-      };
+    // Fetch order from API by Stripe session ID
+    const fetchOrder = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/orders/by-session?session_id=${sessionId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOrder(data);
+          // Clear cart from localStorage after successful payment
+          localStorage.removeItem('bledcrate_cart');
+          localStorage.removeItem('bledcrate_pending_order');
+        }
+      } catch { /* silent */ }
+      finally { setLoading(false); }
+    };
 
-      // Add to persistent orders array
-      const existingRaw = localStorage.getItem('bledcrate_orders');
-      const existing: SavedOrder[] = existingRaw ? JSON.parse(existingRaw) : [];
-      existing.unshift(savedOrder);
-      localStorage.setItem('bledcrate_orders', JSON.stringify(existing));
+    // Webhook may not have processed yet — retry a few times
+    let attempts = 0;
+    const tryFetch = () => {
+      attempts++;
+      fetchOrder().then(() => {
+        if (!order && attempts < 5) {
+          setTimeout(tryFetch, 2000);
+        }
+      });
+    };
+    tryFetch();
+  }, [sessionId]);
 
-      // Clean up pending
-      localStorage.removeItem('bledcrate_pending_order');
-
-      setOrder(savedOrder);
-    } catch {
-      localStorage.removeItem('bledcrate_pending_order');
-    }
-  }, []);
+  const copyTracking = () => {
+    if (!order?.tracking_code) return;
+    navigator.clipboard.writeText(order.tracking_code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="min-h-screen bg-moroccan-cream flex items-center justify-center p-4">
@@ -58,26 +73,52 @@ export default function SuccessPage() {
           Nous préparons votre commande avec amour et vous contacterons bientôt pour la livraison.
         </p>
 
-        {order && (
-          <div className="bg-moroccan-cream rounded-xl p-4 mb-6 text-left text-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Package className="w-4 h-4 text-moroccan-red" />
-              <span className="font-semibold text-moroccan-brown">Résumé de votre commande</span>
-            </div>
-            <div className="space-y-1 text-moroccan-brown/70">
-              {order.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between">
-                  <span>{item.name}{item.variant ? ` (${item.variant})` : ''} x{item.quantity}</span>
-                  <span className="font-medium">{(item.price * item.quantity).toFixed(2)} $</span>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-moroccan-brown/10 mt-2 pt-2 flex justify-between font-bold text-moroccan-red">
-              <span>Total payé</span>
-              <span>{order.total.toFixed(2)} $</span>
-            </div>
-            <p className="text-xs text-moroccan-brown/40 text-right mt-1">Frais et taxes inclus</p>
+        {loading && (
+          <div className="flex items-center justify-center gap-2 mb-6 text-moroccan-brown/60">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Chargement de votre commande...</span>
           </div>
+        )}
+
+        {order && (
+          <>
+            {/* Tracking Code Card */}
+            {order.tracking_code && (
+              <div className="bg-moroccan-gold/10 border-2 border-moroccan-gold/30 rounded-xl p-4 mb-6">
+                <p className="text-xs text-moroccan-brown/60 mb-1">Votre code de suivi</p>
+                <div className="flex items-center justify-center gap-2">
+                  <span className="font-mono text-2xl font-bold text-moroccan-brown tracking-wider">{order.tracking_code}</span>
+                  <button onClick={copyTracking} className="p-1.5 rounded-lg hover:bg-moroccan-gold/20 transition-colors">
+                    {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-moroccan-brown/40" />}
+                  </button>
+                </div>
+                <p className="text-xs text-moroccan-brown/50 mt-2">
+                  Utilisez ce code sur la page <Link to="/track" className="text-moroccan-red underline">Track</Link> pour suivre votre commande
+                </p>
+              </div>
+            )}
+
+            {/* Order Summary */}
+            <div className="bg-moroccan-cream rounded-xl p-4 mb-6 text-left text-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Package className="w-4 h-4 text-moroccan-red" />
+                <span className="font-semibold text-moroccan-brown">Résumé de votre commande</span>
+              </div>
+              <div className="space-y-1 text-moroccan-brown/70">
+                {order.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between">
+                    <span>{item.name}{item.variant ? ` (${item.variant})` : ''} x{item.quantity}</span>
+                    <span className="font-medium">{(item.price * item.quantity).toFixed(2)} $</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-moroccan-brown/10 mt-2 pt-2 flex justify-between font-bold text-moroccan-red">
+                <span>Total payé</span>
+                <span>{order.total.toFixed(2)} $</span>
+              </div>
+              <p className="text-xs text-moroccan-brown/40 text-right mt-1">TPS + TVQ incluses</p>
+            </div>
+          </>
         )}
 
         <Link to="/">

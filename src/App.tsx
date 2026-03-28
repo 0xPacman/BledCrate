@@ -39,7 +39,7 @@ import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { toast, Toaster } from 'sonner';
 import menuData from '@/data/menu.json';
 import { fetchProducts as apiFetchProducts, createCheckout, validatePromo, fetchPublicSettings, fetchSubscriptionPlans, createSubscription, fetchPublicReviews } from '@/lib/api';
@@ -240,7 +240,11 @@ function App() {
   const deliveryFee = afterDiscount >= freeDeliveryThreshold ? 0 : baseDeliveryFee;
   const amountToFreeDelivery = freeDeliveryThreshold - afterDiscount;
 
-  const finalTotal = Math.round((afterDiscount + deliveryFee) * 1.15 * 100) / 100;
+  const taxableAmount = afterDiscount + deliveryFee;
+  const tpsAmount = Math.round(taxableAmount * 0.05 * 100) / 100;
+  const tvqAmount = Math.round(taxableAmount * 0.09975 * 100) / 100;
+  const totalTax = Math.round((tpsAmount + tvqAmount) * 100) / 100;
+  const finalTotal = Math.round((taxableAmount + totalTax) * 100) / 100;
 
   // Send order via Stripe Checkout
   const sendOrder = async () => {
@@ -541,14 +545,14 @@ function App() {
                   )}
                 </button>
               </SheetTrigger>
-              <SheetContent className="w-full sm:max-w-md bg-moroccan-cream flex flex-col overflow-hidden">
-                <SheetHeader className="shrink-0">
-                  <SheetTitle className="font-display text-3xl text-moroccan-brown flex items-center gap-2 pr-8">
-                    <ShoppingCart className="w-6 h-6" />
+              <SheetContent className="w-[85%] sm:max-w-md bg-moroccan-cream !p-0 !gap-0 flex flex-col h-full overflow-hidden">
+                <SheetHeader className="shrink-0 p-4 pb-2">
+                  <SheetTitle className="font-display text-2xl sm:text-3xl text-moroccan-brown flex items-center gap-2 pr-8">
+                    <ShoppingCart className="w-5 h-5" />
                     Votre Panier
                   </SheetTitle>
                 </SheetHeader>
-                <ScrollArea className="flex-1 -mx-4 px-4 pb-4">{/* negative margin to allow full-width scroll */}
+                <div className="flex-1 overflow-y-auto min-h-0 px-4 pb-2">
                   {cart.length === 0 ? (
                     <div className="text-center py-12">
                       <ShoppingCart className="w-16 h-16 text-moroccan-brown/30 mx-auto mb-4" />
@@ -556,11 +560,11 @@ function App() {
                       <p className="text-sm text-moroccan-brown/40 mt-1">Ajoutez des délices marocains !</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-2.5">
                       {cart.map((item, idx) => (
-                        <div key={`${item.id}-${item.selectedVariant}`} className="bg-white rounded-xl p-4 shadow-sm animate-slide-up" style={{ animationDelay: `${idx * 0.1}s` }}>
+                        <div key={`${item.id}-${item.selectedVariant}`} className="bg-white rounded-xl p-3 shadow-sm animate-slide-up" style={{ animationDelay: `${idx * 0.05}s` }}>
                           <div className="flex gap-3">
-                            <img src={item.image} alt={item.name} className="w-20 h-20 object-cover rounded-lg" />
+                            <img src={item.image} alt={item.name} className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-lg shrink-0" />
                             <div className="flex-1">
                               <h4 className="font-semibold text-moroccan-brown">{item.name}</h4>
                               {item.selectedVariant && (
@@ -594,53 +598,44 @@ function App() {
                       ))}
                     </div>
                   )}
-                </ScrollArea>
+                </div>
                 {cart.length > 0 && (
-                  <div className="shrink-0 p-4 bg-white border-t space-y-2 -mx-4 -mb-4">{/* shrink-0 keeps footer visible */}
-                    {/* Bundle progress */}
+                  <div className="shrink-0 px-4 py-3 bg-white border-t space-y-1.5">
+                    {/* Bundle / delivery status - compact single line each */}
                     {bundleEnabled && !qualifiesForBundle && cartCount > 0 && (
-                      <div className="bg-orange-50 rounded-lg p-2.5 text-xs">
-                        <div className="flex items-center gap-1.5 text-orange-700 font-medium mb-1">
-                          <Package className="w-3.5 h-3.5" />
-                          Ajoutez {bundleMinItems - cartCount} plat{bundleMinItems - cartCount > 1 ? 's' : ''} de plus pour -{bundleDiscountPercent}%
-                        </div>
-                        <div className="w-full bg-orange-200 rounded-full h-1.5">
-                          <div className="bg-orange-500 h-1.5 rounded-full transition-all" style={{ width: `${Math.min(100, (cartCount / bundleMinItems) * 100)}%` }} />
-                        </div>
+                      <div className="flex items-center gap-1.5 text-orange-700 text-xs font-medium">
+                        <Package className="w-3 h-3 shrink-0" />
+                        +{bundleMinItems - cartCount} plat{bundleMinItems - cartCount > 1 ? 's' : ''} pour -{bundleDiscountPercent}%
                       </div>
                     )}
                     {qualifiesForBundle && (
-                      <div className="bg-green-50 rounded-lg p-2.5 text-xs flex items-center gap-1.5 text-green-700 font-medium">
-                        <Percent className="w-3.5 h-3.5" />
-                        Bundle activé ! -{bundleDiscountPercent}% ({bundleDiscountAmount.toFixed(2)} $)
+                      <div className="flex items-center gap-1.5 text-green-700 text-xs font-medium">
+                        <Percent className="w-3 h-3 shrink-0" />
+                        Bundle -{bundleDiscountPercent}% ({bundleDiscountAmount.toFixed(2)} $)
                       </div>
                     )}
-                    {/* Delivery progress */}
                     {deliveryFee > 0 && amountToFreeDelivery > 0 && (
-                      <div className="bg-blue-50 rounded-lg p-2.5 text-xs">
-                        <div className="flex items-center gap-1.5 text-blue-700 font-medium mb-1">
-                          <Truck className="w-3.5 h-3.5" />
-                          Plus que {amountToFreeDelivery.toFixed(2)} $ pour la livraison gratuite !
-                        </div>
-                        <div className="w-full bg-blue-200 rounded-full h-1.5">
-                          <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${Math.min(100, (afterDiscount / freeDeliveryThreshold) * 100)}%` }} />
-                        </div>
+                      <div className="flex items-center gap-1.5 text-blue-700 text-xs font-medium">
+                        <Truck className="w-3 h-3 shrink-0" />
+                        +{amountToFreeDelivery.toFixed(2)} $ → livraison gratuite
                       </div>
                     )}
                     {deliveryFee === 0 && cartCount > 0 && (
-                      <div className="bg-green-50 rounded-lg p-2.5 text-xs flex items-center gap-1.5 text-green-700 font-medium">
-                        <Truck className="w-3.5 h-3.5" />
+                      <div className="flex items-center gap-1.5 text-green-700 text-xs font-medium">
+                        <Truck className="w-3 h-3 shrink-0" />
                         Livraison gratuite !
                       </div>
                     )}
-                    <div className="flex justify-between items-center">
-                      <span className="text-moroccan-brown font-medium">Total</span>
-                      <span className="text-2xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
+                    <div className="flex justify-between items-center pt-1">
+                      <div>
+                        <span className="text-moroccan-brown font-medium text-sm">Total</span>
+                        <p className="text-[10px] text-moroccan-brown/40 leading-tight">Taxes incluses</p>
+                      </div>
+                      <span className="text-xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
                     </div>
-                    <p className="text-xs text-moroccan-brown/40 text-right">Livraison, frais et taxes inclus</p>
                     <Button
                       onClick={() => setCheckoutOpen(true)}
-                      className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white font-semibold py-6 btn-liquid"
+                      className="w-full bg-moroccan-red hover:bg-moroccan-red-dark text-white font-semibold py-5 btn-liquid"
                     >
                       Commander Maintenant
                     </Button>
@@ -1992,38 +1987,39 @@ function App() {
                 ))}
 
                 <div className="border-t border-dashed border-moroccan-brown/10 pt-2 mt-2 space-y-1">
-                  {(qualifiesForBundle || promoApplied || deliveryFee > 0) && (
-                    <>
-                      <div className="flex justify-between text-moroccan-brown/50 text-xs">
-                        <span>Sous-total</span>
-                        <span>{cartTotal.toFixed(2)} $</span>
-                      </div>
-                      {qualifiesForBundle && (
-                        <div className="flex justify-between text-green-600 text-xs font-medium">
-                          <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> Bundle -{bundleDiscountPercent}%</span>
-                          <span>-{bundleDiscountAmount.toFixed(2)} $</span>
-                        </div>
-                      )}
-                      {promoApplied && (
-                        <div className="flex justify-between text-green-600 text-xs font-medium">
-                          <span className="flex items-center gap-1"><Percent className="w-3 h-3" /> {promoApplied.code} -{promoApplied.discount}%</span>
-                          <span>-{discountAmount.toFixed(2)} $</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-xs text-moroccan-brown/50">
-                        <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> Livraison</span>
-                        <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
-                          {deliveryFee === 0 ? 'GRATUITE' : `${deliveryFee.toFixed(2)} $`}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex justify-between items-baseline pt-1">
-                    <span className="font-bold text-moroccan-brown">Total</span>
-                    <div className="text-right">
-                      <span className="text-xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
-                      <p className="text-[10px] text-moroccan-brown/40">Taxes et frais inclus</p>
+                  <div className="flex justify-between text-moroccan-brown/50 text-xs">
+                    <span>Sous-total</span>
+                    <span>{cartTotal.toFixed(2)} $</span>
+                  </div>
+                  {qualifiesForBundle && (
+                    <div className="flex justify-between text-green-600 text-xs font-medium">
+                      <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> Bundle -{bundleDiscountPercent}%</span>
+                      <span>-{bundleDiscountAmount.toFixed(2)} $</span>
                     </div>
+                  )}
+                  {promoApplied && (
+                    <div className="flex justify-between text-green-600 text-xs font-medium">
+                      <span className="flex items-center gap-1"><Percent className="w-3 h-3" /> {promoApplied.code} -{promoApplied.discount}%</span>
+                      <span>-{discountAmount.toFixed(2)} $</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs text-moroccan-brown/50">
+                    <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> Livraison</span>
+                    <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
+                      {deliveryFee === 0 ? 'GRATUITE' : `${deliveryFee.toFixed(2)} $`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs text-moroccan-brown/50">
+                    <span>TPS (5%)</span>
+                    <span>{tpsAmount.toFixed(2)} $</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-moroccan-brown/50">
+                    <span>TVQ (9.975%)</span>
+                    <span>{tvqAmount.toFixed(2)} $</span>
+                  </div>
+                  <div className="flex justify-between items-baseline pt-1 border-t border-moroccan-brown/10">
+                    <span className="font-bold text-moroccan-brown">Total</span>
+                    <span className="text-xl font-bold text-moroccan-red">{finalTotal.toFixed(2)} $</span>
                   </div>
                 </div>
               </div>
