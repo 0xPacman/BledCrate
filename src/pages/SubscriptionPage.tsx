@@ -331,7 +331,7 @@ export default function SubscriptionPage() {
 
                     <div className="bg-moroccan-cream/50 rounded-xl p-3 text-center">
                       <span className="text-sm text-moroccan-brown/60">{billingInterval === 'weekly' ? 'Total hebdomadaire' : 'Total mensuel'}</span>
-                      <p className="text-xl font-bold text-moroccan-brown">{plan.monthly_price.toFixed(2)}$ <span className="text-sm font-normal text-moroccan-brown/50">/{billingInterval === 'weekly' ? 'sem' : 'mois'}</span></p>
+                      <p className="text-xl font-bold text-moroccan-brown">{(billingInterval === 'weekly' ? plan.price_per_meal * plan.meals_per_week : plan.monthly_price).toFixed(2)}$ <span className="text-sm font-normal text-moroccan-brown/50">/{billingInterval === 'weekly' ? 'sem' : 'mois'}</span></p>
                     </div>
                   </div>
 
@@ -358,7 +358,7 @@ export default function SubscriptionPage() {
               <div className="text-left">
                 <p className="text-sm text-moroccan-brown/60">Votre sélection</p>
                 <p className="font-display text-xl text-moroccan-brown">
-                  {selectedPlan.meals_per_week} repas/semaine — <span className="text-moroccan-red">{selectedPlan.monthly_price.toFixed(2)}$/{billingInterval === 'weekly' ? 'sem' : 'mois'}</span>
+                  {selectedPlan.meals_per_week} repas/semaine — <span className="text-moroccan-red">{(billingInterval === 'weekly' ? selectedPlan.price_per_meal * selectedPlan.meals_per_week : selectedPlan.monthly_price).toFixed(2)}$/{billingInterval === 'weekly' ? 'sem' : 'mois'}</span>
                 </p>
               </div>
               <Button
@@ -490,11 +490,11 @@ export default function SubscriptionPage() {
                   </Badge>
                 </div>
                 <div className="flex justify-between text-sm text-moroccan-brown/70">
-                  <span>{selectedPlan.price_per_meal.toFixed(2)}$/plat x {selectedPlan.meals_per_week} x 4 semaines</span>
+                  <span>{billingInterval === 'weekly' ? `${selectedPlan.price_per_meal.toFixed(2)}$/plat x ${selectedPlan.meals_per_week} repas` : `${selectedPlan.price_per_meal.toFixed(2)}$/plat x ${selectedPlan.meals_per_week} x 4 semaines`}</span>
                 </div>
                 <div className="border-t pt-2 flex justify-between font-bold text-moroccan-red text-lg">
                   <span>{billingInterval === 'weekly' ? 'Total hebdomadaire' : 'Total mensuel'}</span>
-                  <span>{selectedPlan.monthly_price.toFixed(2)}$ /{billingInterval === 'weekly' ? 'sem' : 'mois'}</span>
+                  <span>{(billingInterval === 'weekly' ? selectedPlan.price_per_meal * selectedPlan.meals_per_week : selectedPlan.monthly_price).toFixed(2)}$ /{billingInterval === 'weekly' ? 'sem' : 'mois'}</span>
                 </div>
                 <p className="text-xs text-moroccan-brown/40">Livraison gratuite incluse. Annulable à tout moment.</p>
               </div>
@@ -561,7 +561,7 @@ export default function SubscriptionPage() {
             >
               {isSubmitting
                 ? 'Redirection vers le paiement...'
-                : `S'abonner — ${selectedPlan?.monthly_price.toFixed(2)} $/${billingInterval === 'weekly' ? 'sem' : 'mois'}`
+                : `S'abonner — ${(billingInterval === 'weekly' ? (selectedPlan?.price_per_meal ?? 0) * (selectedPlan?.meals_per_week ?? 0) : selectedPlan?.monthly_price ?? 0).toFixed(2)} $/${billingInterval === 'weekly' ? 'sem' : 'mois'}`
               }
             </Button>
             <div className="flex items-center justify-center gap-2 mt-1">
